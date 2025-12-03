@@ -1,4 +1,4 @@
-class BlogPostRenderer extends HTMLElement {
+class BlogPostViewer extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
@@ -6,517 +6,79 @@ class BlogPostRenderer extends HTMLElement {
     // State management
     this.state = {
       title: '',
-      content: '',
-      author: '',
-      publishDate: '',
       featuredImage: '',
-      category: '',
-      tags: [],
-      readingTime: 0
+      contentMarkdown: '',
+      ricosJson: null,
+      isLoading: true
     };
 
     this.initializeUI();
   }
 
-  // CMS Integration - Observed Attributes
+  // CMS Integration - Observed attributes
   static get observedAttributes() {
-    return [
-      'cms-title',
-      'cms-content',
-      'cms-author',
-      'cms-date',
-      'cms-featured-image',
-      'cms-category',
-      'cms-tags',
-      'cms-reading-time'
-    ];
+    return ['cms-title', 'cms-featured-image', 'cms-content-json'];
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
     if (!newValue || oldValue === newValue) return;
 
-    switch (name) {
-      case 'cms-title':
-        this.state.title = newValue;
-        break;
-      case 'cms-content':
-        this.state.content = newValue;
-        break;
-      case 'cms-author':
-        this.state.author = newValue;
-        break;
-      case 'cms-date':
-        this.state.publishDate = newValue;
-        break;
-      case 'cms-featured-image':
-        this.state.featuredImage = newValue;
-        break;
-      case 'cms-category':
-        this.state.category = newValue;
-        break;
-      case 'cms-tags':
-        this.state.tags = newValue ? newValue.split(',').map(tag => tag.trim()) : [];
-        break;
-      case 'cms-reading-time':
-        this.state.readingTime = parseInt(newValue) || 0;
-        break;
+    if (name === 'cms-title') {
+      this.state.title = newValue;
+      this.updateTitle();
+    } else if (name === 'cms-featured-image') {
+      this.state.featuredImage = newValue;
+      this.updateFeaturedImage();
+    } else if (name === 'cms-content-json') {
+      try {
+        this.state.ricosJson = typeof newValue === 'string' ? JSON.parse(newValue) : newValue;
+        this.convertRicosToMarkdown();
+      } catch (error) {
+        console.error('Error parsing RICOS JSON:', error);
+        this.state.contentMarkdown = 'Error loading content';
+        this.updateContent();
+      }
     }
-
-    this.render();
   }
 
-  // Initialize UI with styles
+  // Initialize the UI components with beautiful, modern design
   initializeUI() {
     this.shadowRoot.innerHTML = `
       <style>
         :host {
           display: block;
           width: 100%;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-          --primary-color: #2563eb;
-          --secondary-color: #64748b;
-          --text-color: #1e293b;
-          --text-light: #64748b;
-          --border-color: #e2e8f0;
-          --bg-light: #f8fafc;
-          --code-bg: #f1f5f9;
-          --link-color: #2563eb;
-          --link-hover: #1d4ed8;
-          --success-color: #10b981;
-          font-size: 16px;
-          line-height: 1.7;
-          color: var(--text-color);
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
         }
 
         * {
           box-sizing: border-box;
         }
 
-        .blog-container {
-          max-width: 800px;
+        .blog-post-container {
+          max-width: 900px;
           margin: 0 auto;
-          padding: 20px;
-        }
-
-        /* Header Section */
-        .blog-header {
-          margin-bottom: 40px;
-        }
-
-        .blog-meta {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 15px;
-          margin-bottom: 20px;
-          font-size: 14px;
-          color: var(--text-light);
-        }
-
-        .meta-item {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .meta-divider {
-          color: var(--border-color);
-        }
-
-        .category-badge {
-          background-color: var(--primary-color);
-          color: white;
-          padding: 4px 12px;
-          border-radius: 20px;
-          font-size: 12px;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .blog-title {
-          font-size: 2.5em;
-          font-weight: 800;
-          line-height: 1.2;
-          margin: 0 0 20px 0;
-          color: var(--text-color);
-          letter-spacing: -0.02em;
-        }
-
-        .featured-image-container {
-          width: 100%;
-          margin: 30px 0;
-          border-radius: 12px;
-          overflow: hidden;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-        }
-
-        .featured-image {
-          width: 100%;
-          height: auto;
-          display: block;
-          object-fit: cover;
-        }
-
-        /* Table of Contents */
-        .toc-container {
-          background-color: var(--bg-light);
-          border-left: 4px solid var(--primary-color);
-          padding: 25px 30px;
-          margin: 40px 0;
-          border-radius: 8px;
-        }
-
-        .toc-title {
-          font-size: 1.2em;
-          font-weight: 700;
-          margin: 0 0 15px 0;
-          color: var(--text-color);
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .toc-list {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-        }
-
-        .toc-list li {
-          margin-bottom: 8px;
-        }
-
-        .toc-list a {
-          color: var(--text-light);
-          text-decoration: none;
-          transition: all 0.2s;
-          display: inline-block;
-          font-size: 0.95em;
-        }
-
-        .toc-list a:hover {
-          color: var(--primary-color);
-          transform: translateX(5px);
-        }
-
-        .toc-level-2 {
-          padding-left: 20px;
-        }
-
-        .toc-level-3 {
-          padding-left: 40px;
-          font-size: 0.9em;
-        }
-
-        /* Blog Content Styles */
-        .blog-content {
-          font-size: 1.1em;
-          line-height: 1.8;
-        }
-
-        .blog-content > *:first-child {
-          margin-top: 0;
-        }
-
-        .blog-content > *:last-child {
-          margin-bottom: 0;
-        }
-
-        /* Headings */
-        .blog-content h1,
-        .blog-content h2,
-        .blog-content h3,
-        .blog-content h4,
-        .blog-content h5,
-        .blog-content h6 {
-          font-weight: 700;
-          line-height: 1.3;
-          margin-top: 2em;
-          margin-bottom: 0.8em;
-          color: var(--text-color);
-          scroll-margin-top: 20px;
-        }
-
-        .blog-content h1 {
-          font-size: 2.2em;
-          border-bottom: 3px solid var(--border-color);
-          padding-bottom: 0.3em;
-        }
-
-        .blog-content h2 {
-          font-size: 1.8em;
-          border-bottom: 2px solid var(--border-color);
-          padding-bottom: 0.3em;
-        }
-
-        .blog-content h3 {
-          font-size: 1.5em;
-        }
-
-        .blog-content h4 {
-          font-size: 1.3em;
-        }
-
-        .blog-content h5 {
-          font-size: 1.15em;
-        }
-
-        .blog-content h6 {
-          font-size: 1em;
-          color: var(--text-light);
-        }
-
-        /* Paragraphs */
-        .blog-content p {
-          margin: 1.2em 0;
-        }
-
-        /* Links */
-        .blog-content a {
-          color: var(--link-color);
-          text-decoration: underline;
-          transition: color 0.2s;
-        }
-
-        .blog-content a:hover {
-          color: var(--link-hover);
-        }
-
-        /* Lists */
-        .blog-content ul,
-        .blog-content ol {
-          margin: 1.2em 0;
-          padding-left: 2em;
-        }
-
-        .blog-content li {
-          margin: 0.5em 0;
-        }
-
-        .blog-content ul ul,
-        .blog-content ol ol,
-        .blog-content ul ol,
-        .blog-content ol ul {
-          margin: 0.5em 0;
-        }
-
-        /* Blockquotes */
-        .blog-content blockquote {
-          border-left: 4px solid var(--primary-color);
-          padding: 15px 25px;
-          margin: 1.5em 0;
-          background-color: var(--bg-light);
-          border-radius: 0 8px 8px 0;
-          font-style: italic;
-          color: var(--text-light);
-        }
-
-        .blog-content blockquote p {
-          margin: 0.5em 0;
-        }
-
-        .blog-content blockquote p:first-child {
-          margin-top: 0;
-        }
-
-        .blog-content blockquote p:last-child {
-          margin-bottom: 0;
-        }
-
-        /* Code */
-        .blog-content code {
-          background-color: var(--code-bg);
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-family: 'Monaco', 'Courier New', monospace;
-          font-size: 0.9em;
-          color: #e11d48;
-        }
-
-        .blog-content pre {
-          background-color: var(--code-bg);
-          padding: 20px;
-          border-radius: 8px;
-          overflow-x: auto;
-          margin: 1.5em 0;
-          border: 1px solid var(--border-color);
-        }
-
-        .blog-content pre code {
-          background-color: transparent;
-          padding: 0;
-          border-radius: 0;
-          color: var(--text-color);
-          font-size: 0.9em;
-        }
-
-        /* Images */
-        .blog-content img {
-          max-width: 100%;
-          height: auto;
-          border-radius: 8px;
-          margin: 1.5em 0;
-          display: block;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-
-        /* Tables */
-        .blog-content table {
-          width: 100%;
-          border-collapse: collapse;
-          margin: 1.5em 0;
-          border-radius: 8px;
-          overflow: hidden;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        .blog-content th,
-        .blog-content td {
-          padding: 12px 15px;
-          text-align: left;
-          border-bottom: 1px solid var(--border-color);
-        }
-
-        .blog-content th {
-          background-color: var(--bg-light);
-          font-weight: 700;
-          color: var(--text-color);
-          border-bottom: 2px solid var(--border-color);
-        }
-
-        .blog-content tr:last-child td {
-          border-bottom: none;
-        }
-
-        .blog-content tbody tr:hover {
-          background-color: var(--bg-light);
-        }
-
-        /* Horizontal Rule */
-        .blog-content hr {
-          border: none;
-          border-top: 2px solid var(--border-color);
-          margin: 2em 0;
-        }
-
-        /* Strong and Emphasis */
-        .blog-content strong {
-          font-weight: 700;
-          color: var(--text-color);
-        }
-
-        .blog-content em {
-          font-style: italic;
-        }
-
-        /* Tags Section */
-        .tags-container {
-          margin-top: 50px;
-          padding-top: 30px;
-          border-top: 2px solid var(--border-color);
-        }
-
-        .tags-label {
-          font-size: 0.9em;
-          font-weight: 600;
-          color: var(--text-light);
-          margin-bottom: 10px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .tags-list {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-        }
-
-        .tag {
-          background-color: var(--bg-light);
-          color: var(--text-light);
-          padding: 6px 14px;
-          border-radius: 20px;
-          font-size: 0.85em;
-          font-weight: 500;
-          border: 1px solid var(--border-color);
-          transition: all 0.2s;
-        }
-
-        .tag:hover {
-          background-color: var(--primary-color);
-          color: white;
-          border-color: var(--primary-color);
-          transform: translateY(-2px);
-        }
-
-        /* Share Section */
-        .share-container {
-          margin-top: 40px;
-          padding: 25px;
-          background-color: var(--bg-light);
-          border-radius: 12px;
-          text-align: center;
-        }
-
-        .share-label {
-          font-size: 1.1em;
-          font-weight: 600;
-          color: var(--text-color);
-          margin-bottom: 15px;
-        }
-
-        .share-buttons {
-          display: flex;
-          justify-content: center;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-
-        .share-btn {
-          padding: 10px 20px;
-          border-radius: 8px;
-          font-size: 0.9em;
-          font-weight: 600;
-          text-decoration: none;
-          transition: all 0.2s;
-          cursor: pointer;
-          border: none;
-        }
-
-        .share-twitter {
-          background-color: #1DA1F2;
-          color: white;
-        }
-
-        .share-facebook {
-          background-color: #1877F2;
-          color: white;
-        }
-
-        .share-linkedin {
-          background-color: #0A66C2;
-          color: white;
-        }
-
-        .share-btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          padding: 40px 20px;
+          background-color: #ffffff;
         }
 
         /* Loading State */
-        .loading {
-          text-align: center;
-          padding: 60px 20px;
-          color: var(--text-light);
+        .loading-state {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 400px;
+          flex-direction: column;
+          gap: 20px;
         }
 
         .loading-spinner {
-          display: inline-block;
-          width: 40px;
-          height: 40px;
-          border: 4px solid var(--border-color);
-          border-top: 4px solid var(--primary-color);
+          width: 50px;
+          height: 50px;
+          border: 4px solid #f3f3f3;
+          border-top: 4px solid #3498db;
           border-radius: 50%;
           animation: spin 1s linear infinite;
         }
@@ -526,412 +88,664 @@ class BlogPostRenderer extends HTMLElement {
           100% { transform: rotate(360deg); }
         }
 
+        .loading-text {
+          color: #666;
+          font-size: 16px;
+        }
+
+        /* Blog Post Header */
+        .blog-header {
+          margin-bottom: 40px;
+          animation: fadeInUp 0.6s ease-out;
+        }
+
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(30px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .blog-title {
+          font-size: clamp(28px, 5vw, 48px);
+          font-weight: 800;
+          line-height: 1.2;
+          color: #1a1a1a;
+          margin: 0 0 30px 0;
+          letter-spacing: -0.02em;
+        }
+
+        /* Featured Image */
+        .featured-image-container {
+          width: 100%;
+          margin-bottom: 50px;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+          animation: fadeIn 0.8s ease-out 0.2s both;
+        }
+
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+
+        .featured-image {
+          width: 100%;
+          height: auto;
+          display: block;
+          object-fit: cover;
+          max-height: 500px;
+        }
+
+        .featured-image.hidden {
+          display: none;
+        }
+
+        /* Blog Content */
+        .blog-content {
+          font-size: 18px;
+          line-height: 1.8;
+          color: #333;
+          animation: fadeInUp 0.8s ease-out 0.4s both;
+        }
+
+        /* Markdown Styling */
+        .blog-content h1,
+        .blog-content h2,
+        .blog-content h3,
+        .blog-content h4,
+        .blog-content h5,
+        .blog-content h6 {
+          font-weight: 700;
+          line-height: 1.3;
+          margin-top: 40px;
+          margin-bottom: 20px;
+          color: #1a1a1a;
+          letter-spacing: -0.01em;
+        }
+
+        .blog-content h1 {
+          font-size: clamp(32px, 4vw, 42px);
+          margin-top: 60px;
+        }
+
+        .blog-content h2 {
+          font-size: clamp(28px, 3.5vw, 36px);
+          margin-top: 50px;
+        }
+
+        .blog-content h3 {
+          font-size: clamp(24px, 3vw, 30px);
+        }
+
+        .blog-content h4 {
+          font-size: clamp(20px, 2.5vw, 24px);
+        }
+
+        .blog-content h5 {
+          font-size: clamp(18px, 2vw, 20px);
+        }
+
+        .blog-content h6 {
+          font-size: clamp(16px, 1.8vw, 18px);
+        }
+
+        .blog-content p {
+          margin-bottom: 24px;
+          font-size: 18px;
+          line-height: 1.8;
+        }
+
+        .blog-content a {
+          color: #3498db;
+          text-decoration: none;
+          border-bottom: 1px solid #3498db;
+          transition: all 0.3s ease;
+        }
+
+        .blog-content a:hover {
+          color: #2980b9;
+          border-bottom-color: #2980b9;
+        }
+
+        .blog-content strong,
+        .blog-content b {
+          font-weight: 700;
+          color: #1a1a1a;
+        }
+
+        .blog-content em,
+        .blog-content i {
+          font-style: italic;
+        }
+
+        .blog-content ul,
+        .blog-content ol {
+          margin-bottom: 24px;
+          padding-left: 30px;
+        }
+
+        .blog-content li {
+          margin-bottom: 12px;
+          line-height: 1.8;
+        }
+
+        .blog-content ul li {
+          list-style-type: disc;
+        }
+
+        .blog-content ol li {
+          list-style-type: decimal;
+        }
+
+        .blog-content blockquote {
+          margin: 30px 0;
+          padding: 20px 30px;
+          border-left: 4px solid #3498db;
+          background-color: #f8f9fa;
+          font-style: italic;
+          color: #555;
+          border-radius: 0 8px 8px 0;
+        }
+
+        .blog-content blockquote p {
+          margin-bottom: 0;
+        }
+
+        .blog-content code {
+          background-color: #f4f4f4;
+          padding: 3px 8px;
+          border-radius: 4px;
+          font-family: 'Monaco', 'Courier New', monospace;
+          font-size: 0.9em;
+          color: #e74c3c;
+        }
+
+        .blog-content pre {
+          background-color: #2d2d2d;
+          color: #f8f8f2;
+          padding: 20px;
+          border-radius: 8px;
+          overflow-x: auto;
+          margin: 30px 0;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .blog-content pre code {
+          background-color: transparent;
+          padding: 0;
+          color: #f8f8f2;
+          font-size: 14px;
+        }
+
+        .blog-content img {
+          max-width: 100%;
+          height: auto;
+          border-radius: 8px;
+          margin: 30px 0;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .blog-content hr {
+          border: none;
+          border-top: 2px solid #e0e0e0;
+          margin: 40px 0;
+        }
+
+        .blog-content table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 30px 0;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          border-radius: 8px;
+          overflow: hidden;
+        }
+
+        .blog-content table th,
+        .blog-content table td {
+          padding: 12px 16px;
+          text-align: left;
+          border-bottom: 1px solid #e0e0e0;
+        }
+
+        .blog-content table th {
+          background-color: #f8f9fa;
+          font-weight: 700;
+          color: #1a1a1a;
+        }
+
+        .blog-content table tr:last-child td {
+          border-bottom: none;
+        }
+
+        .blog-content table tr:hover {
+          background-color: #f8f9fa;
+        }
+
         /* Responsive Design */
         @media (max-width: 768px) {
-          .blog-container {
-            padding: 15px;
+          .blog-post-container {
+            padding: 30px 16px;
           }
 
           .blog-title {
-            font-size: 1.8em;
+            margin-bottom: 24px;
           }
 
           .blog-content {
-            font-size: 1em;
+            font-size: 16px;
           }
 
-          .blog-content h1 {
-            font-size: 1.8em;
-          }
-
-          .blog-content h2 {
-            font-size: 1.5em;
-          }
-
+          .blog-content h1,
+          .blog-content h2,
           .blog-content h3 {
-            font-size: 1.3em;
+            margin-top: 30px;
           }
 
-          .toc-container {
-            padding: 20px;
+          .featured-image-container {
+            margin-bottom: 30px;
+            border-radius: 8px;
           }
 
-          .blog-meta {
+          .blog-content blockquote {
+            padding: 16px 20px;
+            margin: 20px 0;
+          }
+
+          .blog-content pre {
+            padding: 16px;
             font-size: 13px;
           }
 
-          .share-buttons {
-            flex-direction: column;
+          .blog-content ul,
+          .blog-content ol {
+            padding-left: 20px;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .blog-post-container {
+            padding: 20px 12px;
           }
 
-          .share-btn {
-            width: 100%;
+          .blog-content {
+            font-size: 15px;
+          }
+
+          .blog-content table {
+            font-size: 14px;
+          }
+
+          .blog-content table th,
+          .blog-content table td {
+            padding: 8px 12px;
+          }
+        }
+
+        /* Print Styles */
+        @media print {
+          .blog-post-container {
+            max-width: 100%;
+            padding: 0;
+          }
+
+          .featured-image-container {
+            box-shadow: none;
+          }
+
+          .blog-content a {
+            color: #000;
+            border-bottom: none;
           }
         }
       </style>
 
-      <div class="blog-container">
-        <div class="loading">
+      <div class="blog-post-container">
+        <div class="loading-state" id="loading-state">
           <div class="loading-spinner"></div>
-          <p>Loading blog post...</p>
+          <p class="loading-text">Loading blog post...</p>
+        </div>
+
+        <div id="blog-content-wrapper" style="display: none;">
+          <div class="blog-header">
+            <h1 class="blog-title" id="blog-title"></h1>
+          </div>
+
+          <div class="featured-image-container" id="featured-image-container">
+            <img class="featured-image" id="featured-image" alt="" />
+          </div>
+
+          <div class="blog-content" id="blog-content"></div>
         </div>
       </div>
     `;
+
+    // Get DOM references
+    this.loadingState = this.shadowRoot.getElementById('loading-state');
+    this.contentWrapper = this.shadowRoot.getElementById('blog-content-wrapper');
+    this.titleElement = this.shadowRoot.getElementById('blog-title');
+    this.featuredImageContainer = this.shadowRoot.getElementById('featured-image-container');
+    this.featuredImageElement = this.shadowRoot.getElementById('featured-image');
+    this.contentElement = this.shadowRoot.getElementById('blog-content');
   }
 
-  // Render the blog post
-  render() {
-    const container = this.shadowRoot.querySelector('.blog-container');
-
-    if (!this.state.content) {
+  // Convert RICOS JSON to Markdown
+  convertRicosToMarkdown() {
+    if (!this.state.ricosJson) {
+      this.state.contentMarkdown = '';
+      this.updateContent();
       return;
     }
 
-    // Parse markdown and generate TOC
-    const { html, toc } = this.parseMarkdownWithTOC(this.state.content);
-
-    // Format date
-    const formattedDate = this.formatDate(this.state.publishDate);
-
-    // Build the blog post HTML
-    container.innerHTML = `
-      <article class="blog-article">
-        ${this.state.category ? `
-          <div class="blog-meta">
-            <span class="category-badge">${this.escapeHtml(this.state.category)}</span>
-            ${this.state.publishDate ? `<span class="meta-divider">•</span><span class="meta-item">📅 ${formattedDate}</span>` : ''}
-            ${this.state.author ? `<span class="meta-divider">•</span><span class="meta-item">✍️ ${this.escapeHtml(this.state.author)}</span>` : ''}
-            ${this.state.readingTime > 0 ? `<span class="meta-divider">•</span><span class="meta-item">⏱️ ${this.state.readingTime} min read</span>` : ''}
-          </div>
-        ` : ''}
-
-        <header class="blog-header">
-          <h1 class="blog-title">${this.escapeHtml(this.state.title)}</h1>
-        </header>
-
-        ${this.state.featuredImage ? `
-          <div class="featured-image-container">
-            <img src="${this.state.featuredImage}" alt="${this.escapeHtml(this.state.title)}" class="featured-image">
-          </div>
-        ` : ''}
-
-        <div class="blog-content">
-          ${html}
-        </div>
-
-        ${this.state.tags.length > 0 ? `
-          <div class="tags-container">
-            <div class="tags-label">Tags</div>
-            <div class="tags-list">
-              ${this.state.tags.map(tag => `<span class="tag">#${this.escapeHtml(tag)}</span>`).join('')}
-            </div>
-          </div>
-        ` : ''}
-
-        <div class="share-container">
-          <div class="share-label">Share this article</div>
-          <div class="share-buttons">
-            <button class="share-btn share-twitter" data-platform="twitter">
-              🐦 Share on Twitter
-            </button>
-            <button class="share-btn share-facebook" data-platform="facebook">
-              📘 Share on Facebook
-            </button>
-            <button class="share-btn share-linkedin" data-platform="linkedin">
-              💼 Share on LinkedIn
-            </button>
-          </div>
-        </div>
-      </article>
-    `;
-
-    // Setup share buttons
-    this.setupShareButtons();
-
-    // Add smooth scroll to TOC links
-    this.setupTOCLinks();
+    try {
+      const markdown = this.parseRicosToMarkdown(this.state.ricosJson);
+      this.state.contentMarkdown = markdown;
+      this.updateContent();
+    } catch (error) {
+      console.error('Error converting RICOS to Markdown:', error);
+      this.state.contentMarkdown = 'Error converting content';
+      this.updateContent();
+    }
   }
 
-  // Parse markdown with automatic TOC generation
-  parseMarkdownWithTOC(markdown) {
-    const headings = [];
-    let hasFoundFirstHeading = false;
-    let introContent = '';
-    let mainContent = markdown;
+  // Parse RICOS JSON structure to Markdown
+  parseRicosToMarkdown(ricosJson) {
+    if (!ricosJson || !ricosJson.nodes) {
+      return '';
+    }
 
-    // Split content into intro and main (before and after first heading)
-    const lines = markdown.split('\n');
-    let firstHeadingIndex = -1;
+    let markdown = '';
+    const nodes = ricosJson.nodes;
 
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].match(/^#{1,6}\s/)) {
-        firstHeadingIndex = i;
-        break;
+    for (const node of nodes) {
+      markdown += this.processNode(node);
+    }
+
+    return markdown.trim();
+  }
+
+  // Process individual RICOS node
+  processNode(node) {
+    if (!node || !node.type) return '';
+
+    switch (node.type) {
+      case 'PARAGRAPH':
+        return this.processParagraph(node) + '\n\n';
+      
+      case 'HEADING':
+        return this.processHeading(node) + '\n\n';
+      
+      case 'BULLETED_LIST':
+      case 'ORDERED_LIST':
+        return this.processList(node) + '\n\n';
+      
+      case 'BLOCKQUOTE':
+        return this.processBlockquote(node) + '\n\n';
+      
+      case 'CODE_BLOCK':
+        return this.processCodeBlock(node) + '\n\n';
+      
+      case 'DIVIDER':
+        return '---\n\n';
+      
+      case 'IMAGE':
+        return this.processImage(node) + '\n\n';
+      
+      case 'VIDEO':
+        return this.processVideo(node) + '\n\n';
+      
+      default:
+        // Try to process as text if it has nodes
+        if (node.nodes) {
+          let result = '';
+          for (const childNode of node.nodes) {
+            result += this.processNode(childNode);
+          }
+          return result;
+        }
+        return '';
+    }
+  }
+
+  // Process paragraph node
+  processParagraph(node) {
+    if (!node.nodes || node.nodes.length === 0) return '';
+    
+    let text = '';
+    for (const childNode of node.nodes) {
+      text += this.processTextNode(childNode);
+    }
+    
+    return text.trim();
+  }
+
+  // Process heading node
+  processHeading(node) {
+    const level = node.headingData?.level || 2;
+    const headingPrefix = '#'.repeat(level);
+    
+    let text = '';
+    if (node.nodes) {
+      for (const childNode of node.nodes) {
+        text += this.processTextNode(childNode);
       }
     }
-
-    if (firstHeadingIndex > 0) {
-      introContent = lines.slice(0, firstHeadingIndex).join('\n');
-      mainContent = lines.slice(firstHeadingIndex).join('\n');
-    }
-
-    // Parse markdown to extract headings
-    const headingRegex = /^(#{1,6})\s+(.+)$/gm;
-    let match;
-    let contentWithIds = mainContent;
-
-    while ((match = headingRegex.exec(mainContent)) !== null) {
-      const level = match[1].length;
-      const text = match[0].replace(/^#{1,6}\s+/, '');
-      const id = this.generateSlug(text);
-
-      headings.push({
-        level: level,
-        text: text,
-        id: id
-      });
-
-      // Replace heading with version that has ID
-      const originalHeading = match[0];
-      const newHeading = `<h${level} id="${id}">${this.escapeHtml(text)}</h${level}>`;
-      contentWithIds = contentWithIds.replace(originalHeading, `__HEADING_${id}__`);
-    }
-
-    // Generate TOC HTML
-    let tocHtml = '';
-    if (headings.length > 0) {
-      tocHtml = `
-        <div class="toc-container">
-          <div class="toc-title">📋 Table of Contents</div>
-          <ul class="toc-list">
-            ${headings.map(h => `
-              <li class="toc-level-${h.level}">
-                <a href="#${h.id}">${this.escapeHtml(h.text)}</a>
-              </li>
-            `).join('')}
-          </ul>
-        </div>
-      `;
-    }
-
-    // Convert markdown to HTML
-    let html = this.parseMarkdown(introContent);
-
-    if (tocHtml) {
-      html += tocHtml;
-    }
-
-    // Replace heading placeholders with actual HTML
-    let mainHtml = this.parseMarkdown(contentWithIds);
-    headings.forEach(h => {
-      mainHtml = mainHtml.replace(
-        `__HEADING_${h.id}__`,
-        `<h${h.level} id="${h.id}">${this.escapeHtml(h.text)}</h${h.level}>`
-      );
-    });
-
-    html += mainHtml;
-
-    return {
-      html: html,
-      toc: headings
-    };
+    
+    return `${headingPrefix} ${text.trim()}`;
   }
 
-  // Simple markdown parser
-  parseMarkdown(markdown) {
-    if (!markdown) return '';
-
-    let html = markdown;
-
-    // Code blocks (must be before inline code)
-    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Bold
-    html = html.replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-
-    // Italic
-    html = html.replace(/\*([^\*]+)\*/g, '<em>$1</em>');
-    html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
-
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-
-    // Images
-    html = html.replace(/!\[([^\]]*)\]\(([^\)]+)\)/g, '<img src="$2" alt="$1">');
-
-    // Headings (if not already processed)
-    html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
-    html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
-    html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
-    html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
-    html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
-
-    // Blockquotes
-    html = html.replace(/^>\s+(.+)$/gm, '<blockquote><p>$1</p></blockquote>');
-
-    // Horizontal rules
-    html = html.replace(/^(---|\*\*\*|___)$/gm, '<hr>');
-
-    // Unordered lists
-    html = html.replace(/^\*\s+(.+)$/gm, '<li>$1</li>');
-    html = html.replace(/^-\s+(.+)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-
-    // Ordered lists
-    html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
-
-    // Tables (basic support)
-    const tableRegex = /\|(.+)\|\n\|[-\s|]+\|\n((?:\|.+\|\n?)+)/g;
-    html = html.replace(tableRegex, (match, header, rows) => {
-      const headerCells = header.split('|').filter(cell => cell.trim()).map(cell => `<th>${cell.trim()}</th>`).join('');
-      const rowsHtml = rows.trim().split('\n').map(row => {
-        const cells = row.split('|').filter(cell => cell.trim()).map(cell => `<td>${cell.trim()}</td>`).join('');
-        return `<tr>${cells}</tr>`;
-      }).join('');
-      return `<table><thead><tr>${headerCells}</tr></thead><tbody>${rowsHtml}</tbody></table>`;
-    });
-
-    // Line breaks and paragraphs
-    html = html.replace(/\n\n/g, '</p><p>');
-    html = html.replace(/^(?!<[huo])/gm, '<p>');
-    html = html.replace(/(?<!>)$/gm, '</p>');
-
-    // Clean up empty paragraphs
-    html = html.replace(/<p><\/p>/g, '');
-    html = html.replace(/<p>\s*<\/p>/g, '');
-
-    // Fix paragraph tags around block elements
-    html = html.replace(/<p>(<(?:h[1-6]|ul|ol|blockquote|pre|table|hr))/gi, '$1');
-    html = html.replace(/(<\/(?:h[1-6]|ul|ol|blockquote|pre|table|hr)>)<\/p>/gi, '$1');
-
-    return html;
-  }
-
-  // Generate URL-friendly slug from text
-  generateSlug(text) {
-    return text
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .trim();
-  }
-
-  // Format date
-  formatDate(dateString) {
-    if (!dateString) return '';
-
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-    } catch (e) {
-      return dateString;
-    }
-  }
-
-  // Escape HTML to prevent XSS
-  escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  // Setup share buttons
-  setupShareButtons() {
-    const shareButtons = this.shadowRoot.querySelectorAll('.share-btn');
-
-    shareButtons.forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const platform = e.target.getAttribute('data-platform');
-        this.shareArticle(platform);
-      });
-    });
-  }
-
-  // Share article on social media
-  shareArticle(platform) {
-    const url = encodeURIComponent(window.location.href);
-    const title = encodeURIComponent(this.state.title);
-
-    let shareUrl = '';
-
-    switch (platform) {
-      case 'twitter':
-        shareUrl = `https://twitter.com/intent/tweet?text=${title}&url=${url}`;
-        break;
-      case 'facebook':
-        shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}`;
-        break;
-      case 'linkedin':
-        shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${url}`;
-        break;
-    }
-
-    if (shareUrl) {
-      window.open(shareUrl, '_blank', 'width=600,height=400');
-    }
-  }
-
-  // Setup smooth scroll for TOC links
-  setupTOCLinks() {
-    const tocLinks = this.shadowRoot.querySelectorAll('.toc-list a');
-
-    tocLinks.forEach(link => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const targetId = link.getAttribute('href').substring(1);
-        const targetElement = this.shadowRoot.getElementById(targetId);
-
-        if (targetElement) {
-          targetElement.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start'
-          });
-
-          // Update URL hash without jumping
-          history.pushState(null, null, `#${targetId}`);
+  // Process list node
+  processList(node) {
+    if (!node.nodes) return '';
+    
+    const isOrdered = node.type === 'ORDERED_LIST';
+    let markdown = '';
+    
+    node.nodes.forEach((listItem, index) => {
+      if (listItem.type === 'LIST_ITEM' && listItem.nodes) {
+        const prefix = isOrdered ? `${index + 1}. ` : '- ';
+        let itemText = '';
+        
+        for (const itemNode of listItem.nodes) {
+          if (itemNode.type === 'PARAGRAPH' && itemNode.nodes) {
+            for (const textNode of itemNode.nodes) {
+              itemText += this.processTextNode(textNode);
+            }
+          }
         }
-      });
+        
+        markdown += `${prefix}${itemText.trim()}\n`;
+      }
     });
+    
+    return markdown;
+  }
+
+  // Process blockquote node
+  processBlockquote(node) {
+    if (!node.nodes) return '';
+    
+    let text = '';
+    for (const childNode of node.nodes) {
+      if (childNode.type === 'PARAGRAPH') {
+        text += this.processParagraph(childNode);
+      }
+    }
+    
+    return `> ${text.trim()}`;
+  }
+
+  // Process code block node
+  processCodeBlock(node) {
+    if (!node.nodes) return '';
+    
+    let code = '';
+    for (const childNode of node.nodes) {
+      if (childNode.type === 'PARAGRAPH' && childNode.nodes) {
+        for (const textNode of childNode.nodes) {
+          if (textNode.type === 'TEXT') {
+            code += textNode.textData?.text || '';
+          }
+        }
+      }
+    }
+    
+    const language = node.codeBlockData?.textStyle?.language || '';
+    return `\`\`\`${language}\n${code}\n\`\`\``;
+  }
+
+  // Process image node
+  processImage(node) {
+    const imageData = node.imageData;
+    if (!imageData) return '';
+    
+    const src = imageData.image?.src || '';
+    const alt = imageData.altText || '';
+    
+    if (!src) return '';
+    
+    return `![${alt}](${src})`;
+  }
+
+  // Process video node
+  processVideo(node) {
+    const videoData = node.videoData;
+    if (!videoData) return '';
+    
+    const src = videoData.video?.src || '';
+    
+    if (!src) return '';
+    
+    return `[Video: ${src}](${src})`;
+  }
+
+  // Process text node with formatting
+  processTextNode(node) {
+    if (!node || node.type !== 'TEXT') return '';
+    
+    let text = node.textData?.text || '';
+    const decorations = node.textData?.decorations || [];
+    
+    // Apply text formatting
+    for (const decoration of decorations) {
+      switch (decoration.type) {
+        case 'BOLD':
+          text = `**${text}**`;
+          break;
+        case 'ITALIC':
+          text = `*${text}*`;
+          break;
+        case 'UNDERLINE':
+          text = `<u>${text}</u>`;
+          break;
+        case 'CODE':
+          text = `\`${text}\``;
+          break;
+      }
+      
+      // Handle links
+      if (decoration.type === 'LINK' && decoration.linkData) {
+        const url = decoration.linkData.url || '';
+        text = `[${text}](${url})`;
+      }
+    }
+    
+    return text;
+  }
+
+  // Update title
+  updateTitle() {
+    if (this.titleElement) {
+      this.titleElement.textContent = this.state.title;
+    }
+  }
+
+  // Update featured image
+  updateFeaturedImage() {
+    if (this.featuredImageElement && this.featuredImageContainer) {
+      if (this.state.featuredImage) {
+        this.featuredImageElement.src = this.state.featuredImage;
+        this.featuredImageElement.alt = this.state.title || 'Featured Image';
+        this.featuredImageContainer.style.display = 'block';
+      } else {
+        this.featuredImageContainer.style.display = 'none';
+      }
+    }
+  }
+
+  // Update content with Markdown rendering
+  updateContent() {
+    if (this.contentElement) {
+      // Use marked.js from CDN for Markdown parsing
+      if (typeof marked !== 'undefined') {
+        this.contentElement.innerHTML = marked.parse(this.state.contentMarkdown);
+      } else {
+        // Fallback: Load marked.js dynamically
+        this.loadMarkedJS().then(() => {
+          this.contentElement.innerHTML = marked.parse(this.state.contentMarkdown);
+        });
+      }
+    }
+    
+    this.hideLoading();
+  }
+
+  // Load marked.js library dynamically
+  loadMarkedJS() {
+    return new Promise((resolve, reject) => {
+      if (typeof marked !== 'undefined') {
+        resolve();
+        return;
+      }
+      
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js';
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load marked.js'));
+      document.head.appendChild(script);
+    });
+  }
+
+  // Hide loading state and show content
+  hideLoading() {
+    if (this.loadingState && this.contentWrapper) {
+      this.loadingState.style.display = 'none';
+      this.contentWrapper.style.display = 'block';
+    }
   }
 
   // Connected callback
   connectedCallback() {
-    // Check if URL has hash and scroll to it
-    if (window.location.hash) {
-      setTimeout(() => {
-        const targetId = window.location.hash.substring(1);
-        const targetElement = this.shadowRoot.getElementById(targetId);
-        if (targetElement) {
-          targetElement.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start'
-          });
-        }
-      }, 500);
+    // Load marked.js when component is connected
+    this.loadMarkedJS().catch(error => {
+      console.error('Error loading marked.js:', error);
+    });
+    
+    // If we already have data, update the UI
+    if (this.state.title || this.state.featuredImage || this.state.ricosJson) {
+      this.hideLoading();
     }
   }
 }
 
-// Register the custom element
-customElements.define('blog-post-renderer', BlogPostRenderer);
+// Register the custom element for Wix
+customElements.define('blog-post-viewer', BlogPostViewer);
 
 // Wix Custom Element Export
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = BlogPostRenderer;
+  module.exports = BlogPostViewer;
 }
 
 // Global registration for Wix environment
 if (typeof window !== 'undefined' && window.customElements) {
-  window.BlogPostRenderer = BlogPostRenderer;
+  window.BlogPostViewer = BlogPostViewer;
 }
