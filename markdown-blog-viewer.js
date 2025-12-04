@@ -16,19 +16,13 @@ class MarkdownBlogViewer extends HTMLElement {
 
   // CMS Integration - Observed attributes
   static get observedAttributes() {
-    return ['cms-title', 'cms-featured-image', 'cms-markdown-content'];
+    return ['cms-markdown-content'];
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
     if (!newValue || oldValue === newValue) return;
 
-    if (name === 'cms-title') {
-      this.state.title = newValue;
-      this.updateTitle();
-    } else if (name === 'cms-featured-image') {
-      this.state.featuredImage = newValue;
-      this.updateFeaturedImage();
-    } else if (name === 'cms-markdown-content') {
+    if (name === 'cms-markdown-content') {
       this.state.markdownContent = newValue;
       this.updateContent();
     }
@@ -86,12 +80,6 @@ class MarkdownBlogViewer extends HTMLElement {
           font-size: 16px;
         }
 
-        /* Blog Post Header */
-        .blog-header {
-          margin-bottom: 40px;
-          animation: fadeInUp 0.6s ease-out;
-        }
-
         @keyframes fadeInUp {
           from {
             opacity: 0;
@@ -103,25 +91,6 @@ class MarkdownBlogViewer extends HTMLElement {
           }
         }
 
-        .blog-title {
-          font-size: clamp(28px, 5vw, 48px);
-          font-weight: 800;
-          line-height: 1.2;
-          color: #1a1a1a;
-          margin: 0 0 30px 0;
-          letter-spacing: -0.02em;
-        }
-
-        /* Featured Image */
-        .featured-image-container {
-          width: 100%;
-          margin-bottom: 50px;
-          border-radius: 12px;
-          overflow: hidden;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-          animation: fadeIn 0.8s ease-out 0.2s both;
-        }
-
         @keyframes fadeIn {
           from {
             opacity: 0;
@@ -131,16 +100,75 @@ class MarkdownBlogViewer extends HTMLElement {
           }
         }
 
-        .featured-image {
-          width: 100%;
-          height: auto;
-          display: block;
-          object-fit: cover;
-          max-height: 500px;
+        /* Table of Contents */
+        .table-of-contents {
+          background-color: #f8f9fa;
+          border: 2px solid #e9ecef;
+          border-radius: 8px;
+          padding: 24px;
+          margin-bottom: 40px;
+          animation: fadeInUp 0.6s ease-out;
         }
 
-        .featured-image.hidden {
-          display: none;
+        .toc-title {
+          font-size: 20px;
+          font-weight: 700;
+          color: #1a1a1a;
+          margin: 0 0 16px 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .toc-icon {
+          font-size: 22px;
+        }
+
+        .toc-list {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+        }
+
+        .toc-list li {
+          margin-bottom: 8px;
+        }
+
+        .toc-list a {
+          color: #495057;
+          text-decoration: none;
+          display: block;
+          padding: 6px 0;
+          transition: all 0.2s ease;
+          border-left: 3px solid transparent;
+          padding-left: 12px;
+        }
+
+        .toc-list a:hover {
+          color: #3498db;
+          border-left-color: #3498db;
+          padding-left: 16px;
+          background-color: rgba(52, 152, 219, 0.05);
+        }
+
+        .toc-list .toc-level-2 {
+          padding-left: 12px;
+        }
+
+        .toc-list .toc-level-3 {
+          padding-left: 32px;
+          font-size: 15px;
+        }
+
+        .toc-list .toc-level-4 {
+          padding-left: 48px;
+          font-size: 14px;
+        }
+
+        .toc-list .toc-level-5,
+        .toc-list .toc-level-6 {
+          padding-left: 64px;
+          font-size: 13px;
         }
 
         /* Blog Content */
@@ -330,10 +358,6 @@ class MarkdownBlogViewer extends HTMLElement {
             padding: 30px 16px;
           }
 
-          .blog-title {
-            margin-bottom: 24px;
-          }
-
           .blog-content {
             font-size: 16px;
           }
@@ -344,9 +368,17 @@ class MarkdownBlogViewer extends HTMLElement {
             margin-top: 30px;
           }
 
-          .featured-image-container {
+          .table-of-contents {
+            padding: 20px;
             margin-bottom: 30px;
-            border-radius: 8px;
+          }
+
+          .toc-title {
+            font-size: 18px;
+          }
+
+          .toc-list a {
+            font-size: 15px;
           }
 
           .blog-content blockquote {
@@ -372,6 +404,18 @@ class MarkdownBlogViewer extends HTMLElement {
 
           .blog-content {
             font-size: 15px;
+          }
+
+          .table-of-contents {
+            padding: 16px;
+          }
+
+          .toc-title {
+            font-size: 16px;
+          }
+
+          .toc-list a {
+            font-size: 14px;
           }
 
           .blog-content table {
@@ -409,14 +453,7 @@ class MarkdownBlogViewer extends HTMLElement {
         </div>
 
         <div id="blog-content-wrapper" style="display: none;">
-          <div class="blog-header">
-            <h1 class="blog-title" id="blog-title"></h1>
-          </div>
-
-          <div class="featured-image-container" id="featured-image-container">
-            <img class="featured-image" id="featured-image" alt="" />
-          </div>
-
+          <div id="table-of-contents"></div>
           <div class="blog-content" id="blog-content"></div>
         </div>
       </div>
@@ -425,47 +462,158 @@ class MarkdownBlogViewer extends HTMLElement {
     // Get DOM references
     this.loadingState = this.shadowRoot.getElementById('loading-state');
     this.contentWrapper = this.shadowRoot.getElementById('blog-content-wrapper');
-    this.titleElement = this.shadowRoot.getElementById('blog-title');
-    this.featuredImageContainer = this.shadowRoot.getElementById('featured-image-container');
-    this.featuredImageElement = this.shadowRoot.getElementById('featured-image');
+    this.tocElement = this.shadowRoot.getElementById('table-of-contents');
     this.contentElement = this.shadowRoot.getElementById('blog-content');
   }
 
-  // Update title
+  // Generate Table of Contents from headings
+  generateTableOfContents(htmlContent) {
+    // Create a temporary div to parse the HTML
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = htmlContent;
+    
+    // Find all headings (h1-h6)
+    const headings = tempDiv.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    
+    if (headings.length === 0) {
+      return ''; // No headings, no TOC
+    }
+    
+    // Generate unique IDs for each heading and build TOC
+    const tocItems = [];
+    headings.forEach((heading, index) => {
+      const level = parseInt(heading.tagName.substring(1)); // Get number from h1, h2, etc.
+      const text = heading.textContent;
+      const id = `heading-${index}`;
+      
+      // Add ID to the heading
+      heading.id = id;
+      
+      // Add to TOC items
+      tocItems.push({
+        level: level,
+        text: text,
+        id: id
+      });
+    });
+    
+    // Update the content with IDs added to headings
+    const updatedContent = tempDiv.innerHTML;
+    
+    // Build TOC HTML
+    let tocHtml = `
+      <div class="table-of-contents">
+        <div class="toc-title">
+          <span class="toc-icon">📑</span>
+          Table of Contents
+        </div>
+        <ul class="toc-list">
+    `;
+    
+    tocItems.forEach(item => {
+      tocHtml += `
+        <li class="toc-level-${item.level}">
+          <a href="#${item.id}">${item.text}</a>
+        </li>
+      `;
+    });
+    
+    tocHtml += `
+        </ul>
+      </div>
+    `;
+    
+    return {
+      toc: tocHtml,
+      content: updatedContent
+    };
+  }
+
+  // Update title (kept for compatibility but not displayed)
   updateTitle() {
-    if (this.titleElement) {
-      this.titleElement.textContent = this.state.title;
-    }
+    // Title is no longer displayed in the custom element
+    // It should be added to the Wix page separately
   }
 
-  // Update featured image
+  // Update featured image (kept for compatibility but not displayed)
   updateFeaturedImage() {
-    if (this.featuredImageElement && this.featuredImageContainer) {
-      if (this.state.featuredImage) {
-        this.featuredImageElement.src = this.state.featuredImage;
-        this.featuredImageElement.alt = this.state.title || 'Featured Image';
-        this.featuredImageContainer.style.display = 'block';
-      } else {
-        this.featuredImageContainer.style.display = 'none';
-      }
-    }
+    // Featured image is no longer displayed in the custom element
+    // It should be added to the Wix page separately
   }
 
-  // Update content with Markdown rendering
+  // Update content with Markdown rendering and automatic TOC
   updateContent() {
-    if (this.contentElement) {
+    if (this.contentElement && this.tocElement) {
       // Use marked.js from CDN for Markdown parsing
       if (typeof marked !== 'undefined') {
-        this.contentElement.innerHTML = marked.parse(this.state.markdownContent);
+        const htmlContent = marked.parse(this.state.markdownContent);
+        const result = this.generateTableOfContents(htmlContent);
+        
+        if (result && result.toc) {
+          this.tocElement.innerHTML = result.toc;
+          this.contentElement.innerHTML = result.content;
+          
+          // Add smooth scroll behavior to TOC links
+          this.addSmoothScrollToTOC();
+        } else {
+          // No headings found, just show content without TOC
+          this.tocElement.innerHTML = '';
+          this.contentElement.innerHTML = htmlContent;
+        }
       } else {
         // Fallback: Load marked.js dynamically
         this.loadMarkedJS().then(() => {
-          this.contentElement.innerHTML = marked.parse(this.state.markdownContent);
+          const htmlContent = marked.parse(this.state.markdownContent);
+          const result = this.generateTableOfContents(htmlContent);
+          
+          if (result && result.toc) {
+            this.tocElement.innerHTML = result.toc;
+            this.contentElement.innerHTML = result.content;
+            
+            // Add smooth scroll behavior to TOC links
+            this.addSmoothScrollToTOC();
+          } else {
+            // No headings found, just show content without TOC
+            this.tocElement.innerHTML = '';
+            this.contentElement.innerHTML = htmlContent;
+          }
         });
       }
     }
     
     this.hideLoading();
+  }
+
+  // Add smooth scroll behavior to TOC links
+  addSmoothScrollToTOC() {
+    const tocLinks = this.tocElement.querySelectorAll('a[href^="#"]');
+    
+    tocLinks.forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const targetId = link.getAttribute('href').substring(1);
+        const targetElement = this.contentElement.querySelector(`#${targetId}`);
+        
+        if (targetElement) {
+          targetElement.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+          
+          // Add a highlight effect to the target heading
+          targetElement.style.transition = 'background-color 0.3s ease';
+          targetElement.style.backgroundColor = 'rgba(52, 152, 219, 0.1)';
+          targetElement.style.padding = '8px';
+          targetElement.style.marginLeft = '-8px';
+          targetElement.style.marginRight = '-8px';
+          targetElement.style.borderRadius = '4px';
+          
+          setTimeout(() => {
+            targetElement.style.backgroundColor = 'transparent';
+          }, 1500);
+        }
+      });
+    });
   }
 
   // Load marked.js library dynamically
