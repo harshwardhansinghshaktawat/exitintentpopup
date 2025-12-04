@@ -1,409 +1,357 @@
 class MarkdownEditor extends HTMLElement {
   constructor() {
     super();
-    this.attachShadow({ mode: 'open' });
-
-    // State management
-    this.state = {
-      markdownContent: '',
-      currentPostId: null,
-      isDirty: false,
-      lastSaved: null,
-      activeTab: 'write', // 'write' or 'preview'
-      isFullscreen: false
-    };
-
-    this.initializeUI();
-    this.setupEventListeners();
+    this.currentTab = 'input';
+    this.autoSaveInterval = null;
+    this.editorContent = '';
   }
 
-  // Observed attributes for CMS integration
-  static get observedAttributes() {
-    return ['post-id', 'initial-content'];
+  connectedCallback() {
+    this.render();
+    this.attachEventListeners();
+    this.loadFromLocalStorage();
+    this.startAutoSave();
   }
 
-  attributeChangedCallback(name, oldValue, newValue) {
-    if (!newValue || oldValue === newValue) return;
-
-    if (name === 'post-id') {
-      this.state.currentPostId = newValue;
-    } else if (name === 'initial-content') {
-      this.state.markdownContent = newValue;
-      if (this.textarea) {
-        this.textarea.value = newValue;
-        this.updatePreview();
-      }
+  disconnectedCallback() {
+    if (this.autoSaveInterval) {
+      clearInterval(this.autoSaveInterval);
     }
   }
 
-  // Initialize the UI with beautiful editor design
-  initializeUI() {
-    this.shadowRoot.innerHTML = `
+  render() {
+    this.innerHTML = `
       <style>
-        :host {
-          display: block;
-          width: 100%;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-          --primary-color: #3498db;
-          --success-color: #2ecc71;
-          --warning-color: #f39c12;
-          --danger-color: #e74c3c;
-          --dark-color: #2c3e50;
-          --light-color: #ecf0f1;
-          --border-color: #dcdde1;
-          --shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
         * {
           box-sizing: border-box;
+          margin: 0;
+          padding: 0;
         }
 
-        .editor-container {
-          background: #ffffff;
+        .markdown-editor-container {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background: #fff;
+          border: 1px solid #d1d5db;
           border-radius: 8px;
-          box-shadow: var(--shadow);
-          border: 1px solid var(--border-color);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
           overflow: hidden;
-          transition: all 0.3s ease;
+          max-width: 1200px;
+          margin: 0 auto;
         }
 
-        .editor-container.fullscreen {
-          position: fixed;
-          top: 0;
+        /* Header Tabs */
+        .editor-header {
+          display: flex;
+          background: linear-gradient(to bottom, #f9fafb 0%, #f3f4f6 100%);
+          border-bottom: 1px solid #d1d5db;
+          padding: 0;
+        }
+
+        .tab {
+          flex: 1;
+          padding: 12px 24px;
+          border: none;
+          background: transparent;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+          color: #6b7280;
+          transition: all 0.2s;
+          position: relative;
+        }
+
+        .tab:hover {
+          color: #374151;
+          background: rgba(0, 0, 0, 0.02);
+        }
+
+        .tab.active {
+          color: #2563eb;
+          background: #fff;
+        }
+
+        .tab.active::after {
+          content: '';
+          position: absolute;
+          bottom: 0;
           left: 0;
           right: 0;
-          bottom: 0;
-          z-index: 9999;
-          border-radius: 0;
-          max-width: 100vw;
-          max-height: 100vh;
+          height: 2px;
+          background: #2563eb;
         }
 
         /* Toolbar */
         .toolbar {
           display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 12px;
-          background: #f8f9fa;
-          border-bottom: 1px solid var(--border-color);
           flex-wrap: wrap;
+          gap: 4px;
+          padding: 12px;
+          background: #f9fafb;
+          border-bottom: 1px solid #e5e7eb;
         }
 
         .toolbar-group {
           display: flex;
-          gap: 4px;
-          padding: 0 8px;
-          border-right: 1px solid var(--border-color);
+          gap: 2px;
+          padding-right: 8px;
+          border-right: 1px solid #d1d5db;
         }
 
         .toolbar-group:last-child {
           border-right: none;
-          margin-left: auto;
         }
 
         .toolbar-btn {
-          padding: 8px 12px;
-          background: white;
-          border: 1px solid var(--border-color);
+          width: 32px;
+          height: 32px;
+          border: 1px solid transparent;
+          background: transparent;
           border-radius: 4px;
           cursor: pointer;
-          font-size: 14px;
-          transition: all 0.2s;
           display: flex;
           align-items: center;
-          gap: 4px;
-          color: var(--dark-color);
+          justify-content: center;
+          transition: all 0.15s;
+          font-size: 16px;
+          color: #374151;
         }
 
         .toolbar-btn:hover {
-          background: var(--primary-color);
-          color: white;
-          border-color: var(--primary-color);
-          transform: translateY(-1px);
+          background: #e5e7eb;
+          border-color: #d1d5db;
         }
 
         .toolbar-btn:active {
-          transform: translateY(0);
+          background: #d1d5db;
         }
 
-        .toolbar-btn.active {
-          background: var(--primary-color);
-          color: white;
-          border-color: var(--primary-color);
-        }
-
-        .toolbar-btn .icon {
-          font-size: 16px;
-        }
-
-        /* Tabs */
-        .tabs {
-          display: flex;
-          background: #f8f9fa;
-          border-bottom: 1px solid var(--border-color);
-        }
-
-        .tab {
-          padding: 12px 24px;
-          background: transparent;
-          border: none;
-          cursor: pointer;
-          font-size: 14px;
+        .toolbar-btn.wide {
+          width: auto;
+          padding: 0 12px;
+          font-size: 13px;
           font-weight: 500;
-          color: #666;
-          border-bottom: 3px solid transparent;
-          transition: all 0.2s;
         }
 
-        .tab:hover {
-          background: rgba(52, 152, 219, 0.1);
-          color: var(--primary-color);
+        .toolbar-select {
+          height: 32px;
+          border: 1px solid #d1d5db;
+          border-radius: 4px;
+          background: #fff;
+          padding: 0 8px;
+          font-size: 13px;
+          cursor: pointer;
+          color: #374151;
         }
 
-        .tab.active {
-          color: var(--primary-color);
-          border-bottom-color: var(--primary-color);
+        .toolbar-select:hover {
+          border-color: #9ca3af;
         }
 
         /* Editor Area */
-        .editor-area {
-          display: grid;
-          grid-template-columns: 1fr;
-          height: 600px;
-        }
-
-        .editor-container.fullscreen .editor-area {
-          height: calc(100vh - 120px);
-        }
-
-        .editor-pane,
-        .preview-pane {
+        .editor-content {
+          min-height: 500px;
+          max-height: 600px;
           overflow-y: auto;
-          padding: 20px;
         }
 
-        .editor-pane {
-          background: #ffffff;
-        }
-
-        .preview-pane {
-          background: #fafafa;
-          border-left: 1px solid var(--border-color);
-        }
-
-        .editor-pane.hidden,
-        .preview-pane.hidden {
+        .input-panel, .output-panel {
           display: none;
         }
 
-        /* Textarea */
-        #markdown-textarea {
-          width: 100%;
-          height: 100%;
-          border: none;
+        .input-panel.active, .output-panel.active {
+          display: block;
+        }
+
+        #richEditor {
+          min-height: 500px;
+          padding: 20px;
           outline: none;
-          resize: none;
-          font-family: 'Monaco', 'Courier New', monospace;
-          font-size: 14px;
+          font-size: 15px;
           line-height: 1.6;
-          color: var(--dark-color);
-          background: transparent;
+          color: #1f2937;
         }
 
-        /* Preview Styles - Match blog viewer */
-        .preview-content {
-          max-width: 900px;
-          margin: 0 auto;
+        #richEditor:empty:before {
+          content: attr(data-placeholder);
+          color: #9ca3af;
         }
 
-        .preview-content h1,
-        .preview-content h2,
-        .preview-content h3,
-        .preview-content h4,
-        .preview-content h5,
-        .preview-content h6 {
-          font-weight: 700;
-          line-height: 1.3;
-          margin-top: 24px;
-          margin-bottom: 16px;
-          color: #1a1a1a;
-        }
-
-        .preview-content h1 { font-size: 36px; }
-        .preview-content h2 { font-size: 30px; }
-        .preview-content h3 { font-size: 24px; }
-        .preview-content h4 { font-size: 20px; }
-        .preview-content h5 { font-size: 18px; }
-        .preview-content h6 { font-size: 16px; }
-
-        .preview-content p {
-          margin-bottom: 16px;
-          font-size: 16px;
-          line-height: 1.6;
-          color: #333;
-        }
-
-        .preview-content a {
-          color: var(--primary-color);
-          text-decoration: none;
-          border-bottom: 1px solid var(--primary-color);
-        }
-
-        .preview-content strong { font-weight: 700; }
-        .preview-content em { font-style: italic; }
-
-        .preview-content ul,
-        .preview-content ol {
-          margin-bottom: 16px;
-          padding-left: 24px;
-        }
-
-        .preview-content li {
-          margin-bottom: 8px;
-          line-height: 1.6;
-        }
-
-        .preview-content blockquote {
-          margin: 20px 0;
-          padding: 16px 20px;
-          border-left: 4px solid var(--primary-color);
-          background-color: #f8f9fa;
-          font-style: italic;
-          color: #555;
-        }
-
-        .preview-content code {
-          background-color: #f4f4f4;
-          padding: 2px 6px;
-          border-radius: 3px;
-          font-family: 'Monaco', 'Courier New', monospace;
-          font-size: 0.9em;
-          color: #e74c3c;
-        }
-
-        .preview-content pre {
-          background-color: #2d2d2d;
-          color: #f8f8f2;
-          padding: 16px;
-          border-radius: 6px;
-          overflow-x: auto;
-          margin: 20px 0;
-        }
-
-        .preview-content pre code {
-          background-color: transparent;
-          padding: 0;
-          color: #f8f8f2;
-        }
-
-        .preview-content img {
-          max-width: 100%;
-          height: auto;
-          border-radius: 6px;
-          margin: 20px 0;
-        }
-
-        .preview-content hr {
-          border: none;
-          border-top: 2px solid #e0e0e0;
-          margin: 24px 0;
-        }
-
-        .preview-content table {
-          width: 100%;
-          border-collapse: collapse;
-          margin: 20px 0;
-        }
-
-        .preview-content table th,
-        .preview-content table td {
-          padding: 12px;
-          text-align: left;
-          border: 1px solid var(--border-color);
-        }
-
-        .preview-content table th {
-          background-color: #f8f9fa;
-          font-weight: 700;
-        }
-
-        /* Status Bar */
-        .status-bar {
+        /* Markdown Output */
+        .output-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 8px 16px;
-          background: #f8f9fa;
-          border-top: 1px solid var(--border-color);
-          font-size: 12px;
-          color: #666;
+          padding: 12px 20px;
+          background: #f9fafb;
+          border-bottom: 1px solid #e5e7eb;
         }
 
-        .status-info {
-          display: flex;
-          gap: 16px;
-        }
-
-        .status-indicator {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .status-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: var(--success-color);
-        }
-
-        .status-dot.unsaved {
-          background: var(--warning-color);
-        }
-
-        /* Save Button */
-        .save-btn {
-          padding: 8px 20px;
-          background: var(--success-color);
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
+        .output-title {
           font-size: 14px;
           font-weight: 600;
+          color: #374151;
+        }
+
+        .copy-btn {
+          padding: 8px 16px;
+          background: #2563eb;
+          color: #fff;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 500;
           transition: all 0.2s;
           display: flex;
           align-items: center;
           gap: 6px;
         }
 
-        .save-btn:hover {
-          background: #27ae60;
+        .copy-btn:hover {
+          background: #1d4ed8;
           transform: translateY(-1px);
-          box-shadow: 0 4px 8px rgba(46, 204, 113, 0.3);
+          box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
         }
 
-        .save-btn:disabled {
-          background: #bdc3c7;
-          cursor: not-allowed;
-          transform: none;
+        .copy-btn.copied {
+          background: #10b981;
         }
 
-        .save-btn.saving {
-          background: var(--warning-color);
+        #markdownOutput {
+          min-height: 500px;
+          padding: 20px;
+          font-family: 'Courier New', monospace;
+          font-size: 13px;
+          line-height: 1.6;
+          color: #1f2937;
+          background: #f9fafb;
+          white-space: pre-wrap;
+          word-wrap: break-word;
         }
 
-        /* Modal for Insert Link/Image */
+        /* Rich Editor Styles */
+        #richEditor h1 { font-size: 2em; font-weight: 700; margin: 0.67em 0; }
+        #richEditor h2 { font-size: 1.5em; font-weight: 600; margin: 0.75em 0; }
+        #richEditor h3 { font-size: 1.17em; font-weight: 600; margin: 0.83em 0; }
+        #richEditor h4 { font-size: 1em; font-weight: 600; margin: 1em 0; }
+        #richEditor h5 { font-size: 0.83em; font-weight: 600; margin: 1.17em 0; }
+        #richEditor h6 { font-size: 0.67em; font-weight: 600; margin: 1.33em 0; }
+
+        #richEditor p { margin: 1em 0; }
+        #richEditor strong { font-weight: 700; }
+        #richEditor em { font-style: italic; }
+        #richEditor u { text-decoration: underline; }
+        #richEditor s { text-decoration: line-through; }
+        #richEditor code { 
+          background: #f3f4f6; 
+          padding: 2px 6px; 
+          border-radius: 3px; 
+          font-family: 'Courier New', monospace;
+          font-size: 0.9em;
+        }
+        #richEditor pre {
+          background: #1f2937;
+          color: #f9fafb;
+          padding: 16px;
+          border-radius: 6px;
+          overflow-x: auto;
+          margin: 1em 0;
+        }
+        #richEditor pre code {
+          background: none;
+          padding: 0;
+          color: inherit;
+        }
+        #richEditor blockquote {
+          border-left: 4px solid #d1d5db;
+          padding-left: 16px;
+          margin: 1em 0;
+          color: #6b7280;
+          font-style: italic;
+        }
+        #richEditor ul, #richEditor ol {
+          margin: 1em 0;
+          padding-left: 2em;
+        }
+        #richEditor li {
+          margin: 0.5em 0;
+        }
+        #richEditor hr {
+          border: none;
+          border-top: 2px solid #e5e7eb;
+          margin: 2em 0;
+        }
+        #richEditor a {
+          color: #2563eb;
+          text-decoration: underline;
+        }
+        #richEditor img {
+          max-width: 100%;
+          height: auto;
+          border-radius: 6px;
+          margin: 1em 0;
+        }
+        #richEditor table {
+          border-collapse: collapse;
+          width: 100%;
+          margin: 1em 0;
+        }
+        #richEditor table th, #richEditor table td {
+          border: 1px solid #d1d5db;
+          padding: 8px 12px;
+          text-align: left;
+        }
+        #richEditor table th {
+          background: #f3f4f6;
+          font-weight: 600;
+        }
+        #richEditor mark {
+          background: #fef08a;
+          padding: 2px 4px;
+        }
+        #richEditor sup { vertical-align: super; font-size: 0.8em; }
+        #richEditor sub { vertical-align: sub; font-size: 0.8em; }
+
+        .task-list {
+          list-style: none;
+          padding-left: 0;
+        }
+
+        .task-list li {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+        }
+
+        .task-list input[type="checkbox"] {
+          margin-top: 4px;
+        }
+
+        /* Auto-save indicator */
+        .autosave-indicator {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          font-size: 12px;
+          color: #10b981;
+          opacity: 0;
+          transition: opacity 0.3s;
+        }
+
+        .autosave-indicator.show {
+          opacity: 1;
+        }
+
+        /* Modal for links and images */
         .modal {
           display: none;
           position: fixed;
           top: 0;
           left: 0;
-          right: 0;
-          bottom: 0;
+          width: 100%;
+          height: 100%;
           background: rgba(0, 0, 0, 0.5);
-          z-index: 10000;
+          z-index: 1000;
           align-items: center;
           justify-content: center;
         }
@@ -413,711 +361,994 @@ class MarkdownEditor extends HTMLElement {
         }
 
         .modal-content {
-          background: white;
+          background: #fff;
           padding: 24px;
           border-radius: 8px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-          max-width: 500px;
           width: 90%;
+          max-width: 500px;
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
         }
 
-        .modal-title {
-          font-size: 20px;
-          font-weight: 700;
+        .modal-header {
+          font-size: 18px;
+          font-weight: 600;
           margin-bottom: 16px;
-          color: var(--dark-color);
+          color: #1f2937;
+        }
+
+        .modal-field {
+          margin-bottom: 16px;
+        }
+
+        .modal-label {
+          display: block;
+          font-size: 14px;
+          font-weight: 500;
+          margin-bottom: 6px;
+          color: #374151;
         }
 
         .modal-input {
           width: 100%;
-          padding: 10px;
-          margin-bottom: 12px;
-          border: 1px solid var(--border-color);
-          border-radius: 4px;
+          padding: 8px 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
           font-size: 14px;
         }
 
-        .modal-input:focus {
-          outline: none;
-          border-color: var(--primary-color);
+        .modal-checkbox {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 16px;
         }
 
         .modal-actions {
           display: flex;
           gap: 8px;
           justify-content: flex-end;
-          margin-top: 16px;
         }
 
         .modal-btn {
           padding: 8px 16px;
           border: none;
-          border-radius: 4px;
-          cursor: pointer;
+          border-radius: 6px;
           font-size: 14px;
           font-weight: 500;
+          cursor: pointer;
           transition: all 0.2s;
         }
 
         .modal-btn.primary {
-          background: var(--primary-color);
-          color: white;
+          background: #2563eb;
+          color: #fff;
         }
 
         .modal-btn.primary:hover {
-          background: #2980b9;
+          background: #1d4ed8;
         }
 
         .modal-btn.secondary {
-          background: #e0e0e0;
-          color: var(--dark-color);
+          background: #e5e7eb;
+          color: #374151;
         }
 
         .modal-btn.secondary:hover {
-          background: #d0d0d0;
+          background: #d1d5db;
         }
 
-        /* Responsive Design */
-        @media (max-width: 768px) {
-          .toolbar {
-            padding: 8px;
-          }
-
-          .toolbar-btn {
-            padding: 6px 10px;
-            font-size: 12px;
-          }
-
-          .toolbar-group {
-            padding: 0 4px;
-          }
-
-          .tab {
-            padding: 10px 16px;
-            font-size: 13px;
-          }
-
-          .editor-area {
-            height: 400px;
-          }
-
-          .modal-content {
-            width: 95%;
-            padding: 20px;
-          }
+        /* Scrollbar */
+        .editor-content::-webkit-scrollbar {
+          width: 8px;
         }
 
-        /* Loading Spinner */
-        .spinner {
-          display: inline-block;
-          width: 14px;
-          height: 14px;
-          border: 2px solid rgba(255, 255, 255, 0.3);
-          border-top-color: white;
-          border-radius: 50%;
-          animation: spin 0.8s linear infinite;
+        .editor-content::-webkit-scrollbar-track {
+          background: #f3f4f6;
         }
 
-        @keyframes spin {
-          to { transform: rotate(360deg); }
+        .editor-content::-webkit-scrollbar-thumb {
+          background: #d1d5db;
+          border-radius: 4px;
         }
 
-        /* Help Text */
-        .help-text {
-          font-size: 12px;
-          color: #666;
-          font-style: italic;
-          margin-top: 4px;
+        .editor-content::-webkit-scrollbar-thumb:hover {
+          background: #9ca3af;
         }
       </style>
 
-      <div class="editor-container">
-        <!-- Toolbar -->
+      <div class="markdown-editor-container">
+        <div class="editor-header">
+          <button class="tab active" data-tab="input">📝 Rich Editor</button>
+          <button class="tab" data-tab="output">📋 Markdown Output</button>
+        </div>
+
         <div class="toolbar">
-          <!-- Text Formatting -->
           <div class="toolbar-group">
-            <button class="toolbar-btn" data-action="bold" title="Bold (Ctrl+B)">
-              <span class="icon">𝐁</span>
-            </button>
-            <button class="toolbar-btn" data-action="italic" title="Italic (Ctrl+I)">
-              <span class="icon">𝐼</span>
-            </button>
-            <button class="toolbar-btn" data-action="strikethrough" title="Strikethrough">
-              <span class="icon">S̶</span>
-            </button>
+            <select class="toolbar-select" id="headingSelect">
+              <option value="">Paragraph</option>
+              <option value="h1">Heading 1</option>
+              <option value="h2">Heading 2</option>
+              <option value="h3">Heading 3</option>
+              <option value="h4">Heading 4</option>
+              <option value="h5">Heading 5</option>
+              <option value="h6">Heading 6</option>
+            </select>
           </div>
 
-          <!-- Headings -->
           <div class="toolbar-group">
-            <button class="toolbar-btn" data-action="h1" title="Heading 1">
-              <span class="icon">H1</span>
-            </button>
-            <button class="toolbar-btn" data-action="h2" title="Heading 2">
-              <span class="icon">H2</span>
-            </button>
-            <button class="toolbar-btn" data-action="h3" title="Heading 3">
-              <span class="icon">H3</span>
-            </button>
+            <button class="toolbar-btn" data-command="bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
+            <button class="toolbar-btn" data-command="italic" title="Italic (Ctrl+I)"><em>I</em></button>
+            <button class="toolbar-btn" data-command="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+            <button class="toolbar-btn" data-command="strikethrough" title="Strikethrough"><s>S</s></button>
           </div>
 
-          <!-- Lists -->
           <div class="toolbar-group">
-            <button class="toolbar-btn" data-action="ul" title="Bullet List">
-              <span class="icon">≡</span>
-            </button>
-            <button class="toolbar-btn" data-action="ol" title="Numbered List">
-              <span class="icon">⋮</span>
-            </button>
-            <button class="toolbar-btn" data-action="quote" title="Blockquote">
-              <span class="icon">"</span>
-            </button>
+            <button class="toolbar-btn" data-command="insertUnorderedList" title="Bullet List">•</button>
+            <button class="toolbar-btn" data-command="insertOrderedList" title="Numbered List">1.</button>
+            <button class="toolbar-btn" data-command="taskList" title="Task List">☑</button>
           </div>
 
-          <!-- Insert -->
           <div class="toolbar-group">
-            <button class="toolbar-btn" data-action="link" title="Insert Link (Ctrl+K)">
-              <span class="icon">🔗</span>
-            </button>
-            <button class="toolbar-btn" data-action="image" title="Insert Image">
-              <span class="icon">🖼️</span>
-            </button>
-            <button class="toolbar-btn" data-action="code" title="Inline Code">
-              <span class="icon">&lt;/&gt;</span>
-            </button>
-            <button class="toolbar-btn" data-action="codeblock" title="Code Block">
-              <span class="icon">{ }</span>
-            </button>
+            <button class="toolbar-btn" data-command="insertLink" title="Insert Link">🔗</button>
+            <button class="toolbar-btn" data-command="insertImage" title="Insert Image">🖼️</button>
+            <button class="toolbar-btn" data-command="insertVideo" title="Insert Video">🎬</button>
           </div>
 
-          <!-- Other -->
           <div class="toolbar-group">
-            <button class="toolbar-btn" data-action="hr" title="Horizontal Rule">
-              <span class="icon">—</span>
-            </button>
-            <button class="toolbar-btn" data-action="table" title="Insert Table">
-              <span class="icon">⊞</span>
-            </button>
+            <button class="toolbar-btn" data-command="blockquote" title="Blockquote">❝</button>
+            <button class="toolbar-btn" data-command="code" title="Inline Code">&lt;/&gt;</button>
+            <button class="toolbar-btn" data-command="codeBlock" title="Code Block">{ }</button>
           </div>
 
-          <!-- View Controls -->
           <div class="toolbar-group">
-            <button class="toolbar-btn" data-action="fullscreen" title="Toggle Fullscreen">
-              <span class="icon">⛶</span>
-            </button>
+            <button class="toolbar-btn" data-command="table" title="Insert Table">⊞</button>
+            <button class="toolbar-btn" data-command="horizontalRule" title="Horizontal Rule">—</button>
+          </div>
+
+          <div class="toolbar-group">
+            <button class="toolbar-btn" data-command="superscript" title="Superscript">x²</button>
+            <button class="toolbar-btn" data-command="subscript" title="Subscript">x₂</button>
+            <button class="toolbar-btn" data-command="highlight" title="Highlight">⬛</button>
+          </div>
+
+          <div class="toolbar-group">
+            <button class="toolbar-btn" data-command="emoji" title="Insert Emoji">😊</button>
+            <button class="toolbar-btn wide" data-command="clear" title="Clear All">Clear</button>
           </div>
         </div>
 
-        <!-- Tabs -->
-        <div class="tabs">
-          <button class="tab active" data-tab="write">✏️ Write</button>
-          <button class="tab" data-tab="preview">👁️ Preview</button>
-        </div>
+        <div class="editor-content">
+          <div class="input-panel active">
+            <div contenteditable="true" id="richEditor" data-placeholder="Start typing your content here..."></div>
+            <div class="autosave-indicator">✓ Saved</div>
+          </div>
 
-        <!-- Editor Area -->
-        <div class="editor-area">
-          <div class="editor-pane">
-            <textarea id="markdown-textarea" placeholder="Write your Markdown content here..."></textarea>
+          <div class="output-panel">
+            <div class="output-header">
+              <span class="output-title">Markdown Output</span>
+              <button class="copy-btn" id="copyBtn">
+                <span>📋</span>
+                <span class="copy-text">Copy Markdown</span>
+              </button>
+            </div>
+            <pre id="markdownOutput"></pre>
           </div>
-          <div class="preview-pane hidden">
-            <div class="preview-content" id="preview-content">
-              <p style="color: #999; font-style: italic;">Preview will appear here...</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Status Bar -->
-        <div class="status-bar">
-          <div class="status-info">
-            <div class="status-indicator">
-              <span class="status-dot" id="status-dot"></span>
-              <span id="status-text">Saved</span>
-            </div>
-            <div class="status-indicator">
-              <span id="word-count">0 words</span>
-            </div>
-            <div class="status-indicator">
-              <span id="char-count">0 characters</span>
-            </div>
-          </div>
-          <button class="save-btn" id="save-btn">
-            <span>💾</span>
-            <span id="save-text">Save</span>
-          </button>
         </div>
       </div>
 
       <!-- Link Modal -->
-      <div class="modal" id="link-modal">
+      <div class="modal" id="linkModal">
         <div class="modal-content">
-          <h3 class="modal-title">Insert Link</h3>
-          <input type="text" class="modal-input" id="link-text" placeholder="Link text">
-          <input type="url" class="modal-input" id="link-url" placeholder="https://example.com">
-          <p class="help-text">Enter the text to display and the URL to link to</p>
+          <div class="modal-header">Insert Link</div>
+          <div class="modal-field">
+            <label class="modal-label">Link Text</label>
+            <input type="text" class="modal-input" id="linkText" placeholder="Enter link text">
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">URL</label>
+            <input type="text" class="modal-input" id="linkUrl" placeholder="https://example.com">
+          </div>
+          <div class="modal-checkbox">
+            <input type="checkbox" id="linkNewTab">
+            <label for="linkNewTab">Open in new tab</label>
+          </div>
           <div class="modal-actions">
-            <button class="modal-btn secondary" id="link-cancel">Cancel</button>
-            <button class="modal-btn primary" id="link-insert">Insert</button>
+            <button class="modal-btn secondary" id="linkCancel">Cancel</button>
+            <button class="modal-btn primary" id="linkInsert">Insert</button>
           </div>
         </div>
       </div>
 
       <!-- Image Modal -->
-      <div class="modal" id="image-modal">
+      <div class="modal" id="imageModal">
         <div class="modal-content">
-          <h3 class="modal-title">Insert Image</h3>
-          <input type="text" class="modal-input" id="image-url" placeholder="https://example.com/image.jpg">
-          <input type="text" class="modal-input" id="image-alt" placeholder="Image description (alt text)">
-          <p class="help-text">Enter the image URL and a description for accessibility</p>
+          <div class="modal-header">Insert Image</div>
+          <div class="modal-field">
+            <label class="modal-label">Image URL</label>
+            <input type="text" class="modal-input" id="imageUrl" placeholder="https://example.com/image.jpg">
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Alt Text (Optional)</label>
+            <input type="text" class="modal-input" id="imageAlt" placeholder="Image description">
+          </div>
           <div class="modal-actions">
-            <button class="modal-btn secondary" id="image-cancel">Cancel</button>
-            <button class="modal-btn primary" id="image-insert">Insert</button>
+            <button class="modal-btn secondary" id="imageCancel">Cancel</button>
+            <button class="modal-btn primary" id="imageInsert">Insert</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Video Modal -->
+      <div class="modal" id="videoModal">
+        <div class="modal-content">
+          <div class="modal-header">Insert Video</div>
+          <div class="modal-field">
+            <label class="modal-label">Video URL</label>
+            <input type="text" class="modal-input" id="videoUrl" placeholder="https://youtube.com/watch?v=...">
+          </div>
+          <div class="modal-actions">
+            <button class="modal-btn secondary" id="videoCancel">Cancel</button>
+            <button class="modal-btn primary" id="videoInsert">Insert</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Table Modal -->
+      <div class="modal" id="tableModal">
+        <div class="modal-content">
+          <div class="modal-header">Insert Table</div>
+          <div class="modal-field">
+            <label class="modal-label">Rows</label>
+            <input type="number" class="modal-input" id="tableRows" value="3" min="1">
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Columns</label>
+            <input type="number" class="modal-input" id="tableCols" value="3" min="1">
+          </div>
+          <div class="modal-actions">
+            <button class="modal-btn secondary" id="tableCancel">Cancel</button>
+            <button class="modal-btn primary" id="tableInsert">Insert</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Emoji Picker Modal -->
+      <div class="modal" id="emojiModal">
+        <div class="modal-content">
+          <div class="modal-header">Insert Emoji</div>
+          <div style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-bottom: 16px; max-height: 300px; overflow-y: auto;">
+            ${['😊', '😂', '🥰', '😍', '🤔', '👍', '👎', '❤️', '🔥', '✨', '🎉', '💯', '🚀', '⭐', '✅', '❌', '⚠️', '💡', '📝', '📌', '🔔', '🎯', '💪', '🙏'].map(emoji => 
+              `<button class="toolbar-btn" data-emoji="${emoji}" style="font-size: 24px;">${emoji}</button>`
+            ).join('')}
+          </div>
+          <div class="modal-actions">
+            <button class="modal-btn secondary" id="emojiCancel">Cancel</button>
           </div>
         </div>
       </div>
     `;
   }
 
-  // Setup event listeners
-  setupEventListeners() {
-    // Get DOM references
-    this.textarea = this.shadowRoot.getElementById('markdown-textarea');
-    this.previewContent = this.shadowRoot.getElementById('preview-content');
-    this.saveBtn = this.shadowRoot.getElementById('save-btn');
-    this.saveText = this.shadowRoot.getElementById('save-text');
-    this.statusDot = this.shadowRoot.getElementById('status-dot');
-    this.statusText = this.shadowRoot.getElementById('status-text');
-    this.wordCount = this.shadowRoot.getElementById('word-count');
-    this.charCount = this.shadowRoot.getElementById('char-count');
-    this.editorContainer = this.shadowRoot.querySelector('.editor-container');
-    this.editorPane = this.shadowRoot.querySelector('.editor-pane');
-    this.previewPane = this.shadowRoot.querySelector('.preview-pane');
+  attachEventListeners() {
+    // Tab switching
+    this.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
+    });
 
     // Toolbar buttons
-    this.shadowRoot.querySelectorAll('.toolbar-btn').forEach(btn => {
+    this.querySelectorAll('.toolbar-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const action = e.currentTarget.getAttribute('data-action');
-        this.handleToolbarAction(action);
+        e.preventDefault();
+        const command = btn.dataset.command;
+        if (command) this.executeCommand(command);
       });
     });
 
-    // Tab switching
-    this.shadowRoot.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        const tabName = e.currentTarget.getAttribute('data-tab');
-        this.switchTab(tabName);
-      });
-    });
-
-    // Textarea events
-    this.textarea.addEventListener('input', () => {
-      this.state.markdownContent = this.textarea.value;
-      this.state.isDirty = true;
-      this.updateStatus();
-      this.updateCounts();
-      if (this.state.activeTab === 'preview') {
-        this.updatePreview();
+    // Heading selector
+    const headingSelect = this.querySelector('#headingSelect');
+    headingSelect.addEventListener('change', (e) => {
+      if (e.target.value) {
+        document.execCommand('formatBlock', false, e.target.value);
+      } else {
+        document.execCommand('formatBlock', false, 'p');
       }
+      this.updateMarkdown();
     });
+
+    // Rich editor input
+    const richEditor = this.querySelector('#richEditor');
+    richEditor.addEventListener('input', () => this.updateMarkdown());
+    richEditor.addEventListener('paste', (e) => this.handlePaste(e));
 
     // Keyboard shortcuts
-    this.textarea.addEventListener('keydown', (e) => {
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === 'b') {
-          e.preventDefault();
-          this.handleToolbarAction('bold');
-        } else if (e.key === 'i') {
-          e.preventDefault();
-          this.handleToolbarAction('italic');
-        } else if (e.key === 'k') {
-          e.preventDefault();
-          this.handleToolbarAction('link');
-        } else if (e.key === 's') {
-          e.preventDefault();
-          this.saveContent();
-        }
-      }
-    });
+    richEditor.addEventListener('keydown', (e) => this.handleKeyboard(e));
 
-    // Save button
-    this.saveBtn.addEventListener('click', () => {
-      this.saveContent();
-    });
+    // Copy button
+    const copyBtn = this.querySelector('#copyBtn');
+    copyBtn.addEventListener('click', () => this.copyMarkdown());
 
     // Link modal
     this.setupLinkModal();
-    
-    // Image modal
     this.setupImageModal();
-
-    // Load marked.js
-    this.loadMarkedJS();
+    this.setupVideoModal();
+    this.setupTableModal();
+    this.setupEmojiModal();
   }
 
-  // Setup link modal
-  setupLinkModal() {
-    const modal = this.shadowRoot.getElementById('link-modal');
-    const linkText = this.shadowRoot.getElementById('link-text');
-    const linkUrl = this.shadowRoot.getElementById('link-url');
-    const cancelBtn = this.shadowRoot.getElementById('link-cancel');
-    const insertBtn = this.shadowRoot.getElementById('link-insert');
-
-    cancelBtn.addEventListener('click', () => {
-      modal.classList.remove('active');
-      linkText.value = '';
-      linkUrl.value = '';
-    });
-
-    insertBtn.addEventListener('click', () => {
-      const text = linkText.value || 'link text';
-      const url = linkUrl.value || 'https://';
-      this.insertText(`[${text}](${url})`);
-      modal.classList.remove('active');
-      linkText.value = '';
-      linkUrl.value = '';
-    });
-
-    // Close on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.classList.remove('active');
-      }
-    });
-  }
-
-  // Setup image modal
-  setupImageModal() {
-    const modal = this.shadowRoot.getElementById('image-modal');
-    const imageUrl = this.shadowRoot.getElementById('image-url');
-    const imageAlt = this.shadowRoot.getElementById('image-alt');
-    const cancelBtn = this.shadowRoot.getElementById('image-cancel');
-    const insertBtn = this.shadowRoot.getElementById('image-insert');
-
-    cancelBtn.addEventListener('click', () => {
-      modal.classList.remove('active');
-      imageUrl.value = '';
-      imageAlt.value = '';
-    });
-
-    insertBtn.addEventListener('click', () => {
-      const url = imageUrl.value || 'https://';
-      const alt = imageAlt.value || 'image';
-      this.insertText(`![${alt}](${url})`);
-      modal.classList.remove('active');
-      imageUrl.value = '';
-      imageAlt.value = '';
-    });
-
-    // Close on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.classList.remove('active');
-      }
-    });
-  }
-
-  // Handle toolbar actions
-  handleToolbarAction(action) {
-    const selection = this.getSelection();
-
-    switch (action) {
-      case 'bold':
-        this.wrapText('**', '**', 'bold text');
-        break;
-      case 'italic':
-        this.wrapText('*', '*', 'italic text');
-        break;
-      case 'strikethrough':
-        this.wrapText('~~', '~~', 'strikethrough text');
-        break;
-      case 'h1':
-        this.insertAtLineStart('# ', 'Heading 1');
-        break;
-      case 'h2':
-        this.insertAtLineStart('## ', 'Heading 2');
-        break;
-      case 'h3':
-        this.insertAtLineStart('### ', 'Heading 3');
-        break;
-      case 'ul':
-        this.insertAtLineStart('- ', 'List item');
-        break;
-      case 'ol':
-        this.insertAtLineStart('1. ', 'List item');
-        break;
-      case 'quote':
-        this.insertAtLineStart('> ', 'Quote text');
-        break;
-      case 'link':
-        this.shadowRoot.getElementById('link-modal').classList.add('active');
-        this.shadowRoot.getElementById('link-text').focus();
-        break;
-      case 'image':
-        this.shadowRoot.getElementById('image-modal').classList.add('active');
-        this.shadowRoot.getElementById('image-url').focus();
-        break;
-      case 'code':
-        this.wrapText('`', '`', 'code');
-        break;
-      case 'codeblock':
-        this.insertText('\n```\ncode block\n```\n');
-        break;
-      case 'hr':
-        this.insertText('\n---\n');
-        break;
-      case 'table':
-        this.insertText('\n| Header 1 | Header 2 | Header 3 |\n|----------|----------|----------|\n| Cell 1   | Cell 2   | Cell 3   |\n| Cell 4   | Cell 5   | Cell 6   |\n');
-        break;
-      case 'fullscreen':
-        this.toggleFullscreen();
-        break;
-    }
-
-    this.textarea.focus();
-  }
-
-  // Get current selection
-  getSelection() {
-    return {
-      start: this.textarea.selectionStart,
-      end: this.textarea.selectionEnd,
-      text: this.textarea.value.substring(this.textarea.selectionStart, this.textarea.selectionEnd)
-    };
-  }
-
-  // Wrap selected text
-  wrapText(before, after, placeholder) {
-    const selection = this.getSelection();
-    const text = selection.text || placeholder;
-    const newText = before + text + after;
-    
-    this.replaceSelection(newText);
-    
-    // Select the inserted text
-    const start = selection.start + before.length;
-    const end = start + text.length;
-    this.textarea.setSelectionRange(start, end);
-  }
-
-  // Insert at line start
-  insertAtLineStart(prefix, placeholder) {
-    const selection = this.getSelection();
-    const beforeCursor = this.textarea.value.substring(0, selection.start);
-    const lineStart = beforeCursor.lastIndexOf('\n') + 1;
-    
-    const text = selection.text || placeholder;
-    const newText = prefix + text;
-    
-    this.textarea.setSelectionRange(lineStart, selection.end);
-    this.replaceSelection(newText);
-  }
-
-  // Insert text at cursor
-  insertText(text) {
-    this.replaceSelection(text);
-  }
-
-  // Replace current selection
-  replaceSelection(text) {
-    const selection = this.getSelection();
-    const before = this.textarea.value.substring(0, selection.start);
-    const after = this.textarea.value.substring(selection.end);
-    
-    this.textarea.value = before + text + after;
-    this.state.markdownContent = this.textarea.value;
-    this.state.isDirty = true;
-    
-    // Update cursor position
-    const newPosition = selection.start + text.length;
-    this.textarea.setSelectionRange(newPosition, newPosition);
-    
-    this.updateStatus();
-    this.updateCounts();
-    
-    // Trigger input event
-    this.textarea.dispatchEvent(new Event('input'));
-  }
-
-  // Switch tabs
-  switchTab(tabName) {
-    this.state.activeTab = tabName;
+  switchTab(tab) {
+    this.currentTab = tab;
     
     // Update tab buttons
-    this.shadowRoot.querySelectorAll('.tab').forEach(tab => {
-      if (tab.getAttribute('data-tab') === tabName) {
-        tab.classList.add('active');
-      } else {
-        tab.classList.remove('active');
-      }
+    this.querySelectorAll('.tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === tab);
     });
 
-    // Toggle panes
-    if (tabName === 'write') {
-      this.editorPane.classList.remove('hidden');
-      this.previewPane.classList.add('hidden');
-    } else {
-      this.editorPane.classList.add('hidden');
-      this.previewPane.classList.remove('hidden');
-      this.updatePreview();
+    // Update panels
+    this.querySelector('.input-panel').classList.toggle('active', tab === 'input');
+    this.querySelector('.output-panel').classList.toggle('active', tab === 'output');
+
+    // Update markdown when switching to output
+    if (tab === 'output') {
+      this.updateMarkdown();
     }
   }
 
-  // Update preview
-  updatePreview() {
-    if (typeof marked !== 'undefined') {
-      this.previewContent.innerHTML = marked.parse(this.state.markdownContent);
-    } else {
-      this.previewContent.innerHTML = '<p style="color: #999;">Loading preview...</p>';
-      this.loadMarkedJS().then(() => {
-        this.previewContent.innerHTML = marked.parse(this.state.markdownContent);
-      });
+  executeCommand(command) {
+    const editor = this.querySelector('#richEditor');
+    editor.focus();
+
+    switch(command) {
+      case 'bold':
+      case 'italic':
+      case 'underline':
+      case 'strikethrough':
+        document.execCommand(command);
+        break;
+      case 'insertUnorderedList':
+      case 'insertOrderedList':
+        document.execCommand(command);
+        break;
+      case 'taskList':
+        this.insertTaskList();
+        break;
+      case 'insertLink':
+        this.showLinkModal();
+        break;
+      case 'insertImage':
+        this.showImageModal();
+        break;
+      case 'insertVideo':
+        this.showVideoModal();
+        break;
+      case 'blockquote':
+        document.execCommand('formatBlock', false, 'blockquote');
+        break;
+      case 'code':
+        this.wrapSelection('<code>', '</code>');
+        break;
+      case 'codeBlock':
+        this.insertCodeBlock();
+        break;
+      case 'table':
+        this.showTableModal();
+        break;
+      case 'horizontalRule':
+        document.execCommand('insertHorizontalRule');
+        break;
+      case 'superscript':
+        document.execCommand('superscript');
+        break;
+      case 'subscript':
+        document.execCommand('subscript');
+        break;
+      case 'highlight':
+        this.wrapSelection('<mark>', '</mark>');
+        break;
+      case 'emoji':
+        this.showEmojiModal();
+        break;
+      case 'clear':
+        if (confirm('Are you sure you want to clear all content?')) {
+          editor.innerHTML = '';
+          this.updateMarkdown();
+        }
+        break;
+    }
+
+    this.updateMarkdown();
+  }
+
+  wrapSelection(startTag, endTag) {
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const selectedText = range.toString();
+      const wrapper = document.createElement('span');
+      wrapper.innerHTML = startTag + selectedText + endTag;
+      range.deleteContents();
+      range.insertNode(wrapper);
     }
   }
 
-  // Load marked.js
-  loadMarkedJS() {
-    return new Promise((resolve, reject) => {
-      if (typeof marked !== 'undefined') {
-        resolve();
-        return;
+  insertTaskList() {
+    const editor = this.querySelector('#richEditor');
+    const taskList = document.createElement('ul');
+    taskList.className = 'task-list';
+    
+    for (let i = 0; i < 3; i++) {
+      const li = document.createElement('li');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      const text = document.createElement('span');
+      text.textContent = `Task ${i + 1}`;
+      text.contentEditable = true;
+      li.appendChild(checkbox);
+      li.appendChild(text);
+      taskList.appendChild(li);
+    }
+
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      range.insertNode(taskList);
+    } else {
+      editor.appendChild(taskList);
+    }
+  }
+
+  insertCodeBlock() {
+    const code = prompt('Enter code:');
+    const language = prompt('Enter language (optional):') || '';
+    
+    if (code !== null) {
+      const pre = document.createElement('pre');
+      const codeEl = document.createElement('code');
+      if (language) {
+        codeEl.className = `language-${language}`;
       }
+      codeEl.textContent = code;
+      pre.appendChild(codeEl);
       
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js';
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error('Failed to load marked.js'));
-      document.head.appendChild(script);
-    });
-  }
-
-  // Update status
-  updateStatus() {
-    if (this.state.isDirty) {
-      this.statusDot.classList.add('unsaved');
-      this.statusText.textContent = 'Unsaved changes';
-    } else {
-      this.statusDot.classList.remove('unsaved');
-      if (this.state.lastSaved) {
-        const timeAgo = this.getTimeAgo(this.state.lastSaved);
-        this.statusText.textContent = `Saved ${timeAgo}`;
+      const editor = this.querySelector('#richEditor');
+      const selection = window.getSelection();
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        range.insertNode(pre);
       } else {
-        this.statusText.textContent = 'Saved';
+        editor.appendChild(pre);
       }
     }
   }
 
-  // Update word and character counts
-  updateCounts() {
-    const text = this.state.markdownContent;
-    const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
-    const chars = text.length;
-    
-    this.wordCount.textContent = `${words} word${words !== 1 ? 's' : ''}`;
-    this.charCount.textContent = `${chars} character${chars !== 1 ? 's' : ''}`;
+  setupLinkModal() {
+    const modal = this.querySelector('#linkModal');
+    const insertBtn = this.querySelector('#linkInsert');
+    const cancelBtn = this.querySelector('#linkCancel');
+
+    insertBtn.addEventListener('click', () => {
+      const text = this.querySelector('#linkText').value;
+      const url = this.querySelector('#linkUrl').value;
+      const newTab = this.querySelector('#linkNewTab').checked;
+
+      if (url) {
+        const link = document.createElement('a');
+        link.href = url;
+        link.textContent = text || url;
+        if (newTab) link.target = '_blank';
+
+        const editor = this.querySelector('#richEditor');
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(link);
+        } else {
+          editor.appendChild(link);
+        }
+
+        this.updateMarkdown();
+      }
+
+      modal.classList.remove('active');
+      this.clearLinkModal();
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      modal.classList.remove('active');
+      this.clearLinkModal();
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('active');
+        this.clearLinkModal();
+      }
+    });
   }
 
-  // Toggle fullscreen
-  toggleFullscreen() {
-    this.state.isFullscreen = !this.state.isFullscreen;
-    if (this.state.isFullscreen) {
-      this.editorContainer.classList.add('fullscreen');
-    } else {
-      this.editorContainer.classList.remove('fullscreen');
+  showLinkModal() {
+    const selection = window.getSelection();
+    const selectedText = selection.toString();
+    if (selectedText) {
+      this.querySelector('#linkText').value = selectedText;
+    }
+    this.querySelector('#linkModal').classList.add('active');
+  }
+
+  clearLinkModal() {
+    this.querySelector('#linkText').value = '';
+    this.querySelector('#linkUrl').value = '';
+    this.querySelector('#linkNewTab').checked = false;
+  }
+
+  setupImageModal() {
+    const modal = this.querySelector('#imageModal');
+    const insertBtn = this.querySelector('#imageInsert');
+    const cancelBtn = this.querySelector('#imageCancel');
+
+    insertBtn.addEventListener('click', () => {
+      const url = this.querySelector('#imageUrl').value;
+      const alt = this.querySelector('#imageAlt').value;
+
+      if (url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = alt || '';
+
+        const editor = this.querySelector('#richEditor');
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          range.insertNode(img);
+        } else {
+          editor.appendChild(img);
+        }
+
+        this.updateMarkdown();
+      }
+
+      modal.classList.remove('active');
+      this.clearImageModal();
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      modal.classList.remove('active');
+      this.clearImageModal();
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('active');
+        this.clearImageModal();
+      }
+    });
+  }
+
+  showImageModal() {
+    this.querySelector('#imageModal').classList.add('active');
+  }
+
+  clearImageModal() {
+    this.querySelector('#imageUrl').value = '';
+    this.querySelector('#imageAlt').value = '';
+  }
+
+  setupVideoModal() {
+    const modal = this.querySelector('#videoModal');
+    const insertBtn = this.querySelector('#videoInsert');
+    const cancelBtn = this.querySelector('#videoCancel');
+
+    insertBtn.addEventListener('click', () => {
+      const url = this.querySelector('#videoUrl').value;
+
+      if (url) {
+        const videoEmbed = this.getVideoEmbed(url);
+        if (videoEmbed) {
+          const editor = this.querySelector('#richEditor');
+          const div = document.createElement('div');
+          div.innerHTML = videoEmbed;
+          
+          const selection = window.getSelection();
+          if (selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            range.insertNode(div);
+          } else {
+            editor.appendChild(div);
+          }
+
+          this.updateMarkdown();
+        }
+      }
+
+      modal.classList.remove('active');
+      this.clearVideoModal();
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      modal.classList.remove('active');
+      this.clearVideoModal();
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('active');
+        this.clearVideoModal();
+      }
+    });
+  }
+
+  showVideoModal() {
+    this.querySelector('#videoModal').classList.add('active');
+  }
+
+  clearVideoModal() {
+    this.querySelector('#videoUrl').value = '';
+  }
+
+  getVideoEmbed(url) {
+    // YouTube
+    let match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+    if (match) {
+      return `<iframe width="560" height="315" src="https://www.youtube.com/embed/${match[1]}" frameborder="0" allowfullscreen></iframe>`;
+    }
+
+    // Vimeo
+    match = url.match(/vimeo\.com\/(\d+)/);
+    if (match) {
+      return `<iframe src="https://player.vimeo.com/video/${match[1]}" width="560" height="315" frameborder="0" allowfullscreen></iframe>`;
+    }
+
+    return null;
+  }
+
+  setupTableModal() {
+    const modal = this.querySelector('#tableModal');
+    const insertBtn = this.querySelector('#tableInsert');
+    const cancelBtn = this.querySelector('#tableCancel');
+
+    insertBtn.addEventListener('click', () => {
+      const rows = parseInt(this.querySelector('#tableRows').value) || 3;
+      const cols = parseInt(this.querySelector('#tableCols').value) || 3;
+
+      const table = document.createElement('table');
+      
+      // Create header row
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      for (let i = 0; i < cols; i++) {
+        const th = document.createElement('th');
+        th.textContent = `Header ${i + 1}`;
+        th.contentEditable = true;
+        headerRow.appendChild(th);
+      }
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      // Create body rows
+      const tbody = document.createElement('tbody');
+      for (let i = 0; i < rows; i++) {
+        const row = document.createElement('tr');
+        for (let j = 0; j < cols; j++) {
+          const td = document.createElement('td');
+          td.textContent = `Cell ${i + 1},${j + 1}`;
+          td.contentEditable = true;
+          row.appendChild(td);
+        }
+        tbody.appendChild(row);
+      }
+      table.appendChild(tbody);
+
+      const editor = this.querySelector('#richEditor');
+      const selection = window.getSelection();
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        range.insertNode(table);
+      } else {
+        editor.appendChild(table);
+      }
+
+      this.updateMarkdown();
+      modal.classList.remove('active');
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      modal.classList.remove('active');
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('active');
+      }
+    });
+  }
+
+  showTableModal() {
+    this.querySelector('#tableModal').classList.add('active');
+  }
+
+  setupEmojiModal() {
+    const modal = this.querySelector('#emojiModal');
+    const cancelBtn = this.querySelector('#emojiCancel');
+
+    modal.querySelectorAll('[data-emoji]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const emoji = btn.dataset.emoji;
+        const editor = this.querySelector('#richEditor');
+        
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          range.insertNode(document.createTextNode(emoji));
+        } else {
+          editor.appendChild(document.createTextNode(emoji));
+        }
+
+        this.updateMarkdown();
+        modal.classList.remove('active');
+      });
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      modal.classList.remove('active');
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('active');
+      }
+    });
+  }
+
+  showEmojiModal() {
+    this.querySelector('#emojiModal').classList.add('active');
+  }
+
+  handlePaste(e) {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain');
+    document.execCommand('insertText', false, text);
+  }
+
+  handleKeyboard(e) {
+    // Ctrl+B for bold
+    if (e.ctrlKey && e.key === 'b') {
+      e.preventDefault();
+      document.execCommand('bold');
+      this.updateMarkdown();
+    }
+    // Ctrl+I for italic
+    else if (e.ctrlKey && e.key === 'i') {
+      e.preventDefault();
+      document.execCommand('italic');
+      this.updateMarkdown();
+    }
+    // Ctrl+U for underline
+    else if (e.ctrlKey && e.key === 'u') {
+      e.preventDefault();
+      document.execCommand('underline');
+      this.updateMarkdown();
     }
   }
 
-  // Save content
-  saveContent() {
-    // Dispatch custom event that Wix code will listen for
-    const event = new CustomEvent('markdown-save', {
-      detail: {
-        postId: this.state.currentPostId,
-        content: this.state.markdownContent
-      },
-      bubbles: true,
-      composed: true
-    });
+  htmlToMarkdown(html) {
+    let markdown = '';
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
 
-    this.dispatchEvent(event);
+    const processNode = (node, depth = 0) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return node.textContent;
+      }
 
-    // Update UI
-    this.saveBtn.classList.add('saving');
-    this.saveBtn.disabled = true;
-    this.saveText.innerHTML = '<span class="spinner"></span> Saving...';
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return '';
+      }
+
+      const tag = node.tagName.toLowerCase();
+      let result = '';
+
+      switch(tag) {
+        case 'h1':
+          result = '# ' + node.textContent + '\n\n';
+          break;
+        case 'h2':
+          result = '## ' + node.textContent + '\n\n';
+          break;
+        case 'h3':
+          result = '### ' + node.textContent + '\n\n';
+          break;
+        case 'h4':
+          result = '#### ' + node.textContent + '\n\n';
+          break;
+        case 'h5':
+          result = '##### ' + node.textContent + '\n\n';
+          break;
+        case 'h6':
+          result = '###### ' + node.textContent + '\n\n';
+          break;
+        case 'p':
+          result = Array.from(node.childNodes).map(child => processNode(child, depth)).join('') + '\n\n';
+          break;
+        case 'strong':
+        case 'b':
+          result = '**' + node.textContent + '**';
+          break;
+        case 'em':
+        case 'i':
+          result = '*' + node.textContent + '*';
+          break;
+        case 'u':
+          result = '<u>' + node.textContent + '</u>';
+          break;
+        case 's':
+        case 'strike':
+          result = '~~' + node.textContent + '~~';
+          break;
+        case 'code':
+          if (node.parentElement.tagName.toLowerCase() === 'pre') {
+            const language = node.className.replace('language-', '');
+            result = '```' + language + '\n' + node.textContent + '\n```\n\n';
+          } else {
+            result = '`' + node.textContent + '`';
+          }
+          break;
+        case 'pre':
+          // Handled by code block
+          result = Array.from(node.childNodes).map(child => processNode(child, depth)).join('');
+          break;
+        case 'blockquote':
+          const lines = node.textContent.split('\n');
+          result = lines.map(line => '> ' + line).join('\n') + '\n\n';
+          break;
+        case 'ul':
+          if (node.classList.contains('task-list')) {
+            result = Array.from(node.children).map(li => {
+              const checkbox = li.querySelector('input[type="checkbox"]');
+              const checked = checkbox && checkbox.checked ? 'x' : ' ';
+              const text = li.textContent;
+              return `- [${checked}] ${text}`;
+            }).join('\n') + '\n\n';
+          } else {
+            result = Array.from(node.children).map(li => 
+              '  '.repeat(depth) + '- ' + Array.from(li.childNodes).map(child => processNode(child, depth + 1)).join('')
+            ).join('\n') + '\n\n';
+          }
+          break;
+        case 'ol':
+          result = Array.from(node.children).map((li, index) => 
+            '  '.repeat(depth) + (index + 1) + '. ' + Array.from(li.childNodes).map(child => processNode(child, depth + 1)).join('')
+          ).join('\n') + '\n\n';
+          break;
+        case 'li':
+          result = Array.from(node.childNodes).map(child => processNode(child, depth)).join('');
+          break;
+        case 'a':
+          const href = node.getAttribute('href') || '';
+          const target = node.getAttribute('target');
+          const linkText = node.textContent;
+          result = `[${linkText}](${href})`;
+          if (target === '_blank') {
+            result += ' <!-- target="_blank" -->';
+          }
+          break;
+        case 'img':
+          const src = node.getAttribute('src') || '';
+          const alt = node.getAttribute('alt') || '';
+          result = `![${alt}](${src})\n\n`;
+          break;
+        case 'hr':
+          result = '---\n\n';
+          break;
+        case 'table':
+          const thead = node.querySelector('thead');
+          const tbody = node.querySelector('tbody');
+          
+          if (thead) {
+            const headers = Array.from(thead.querySelectorAll('th')).map(th => th.textContent);
+            result += '| ' + headers.join(' | ') + ' |\n';
+            result += '| ' + headers.map(() => '---').join(' | ') + ' |\n';
+          }
+          
+          if (tbody) {
+            Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+              const cells = Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
+              result += '| ' + cells.join(' | ') + ' |\n';
+            });
+          }
+          result += '\n';
+          break;
+        case 'sup':
+          result = '<sup>' + node.textContent + '</sup>';
+          break;
+        case 'sub':
+          result = '<sub>' + node.textContent + '</sub>';
+          break;
+        case 'mark':
+          result = '<mark>' + node.textContent + '</mark>';
+          break;
+        case 'iframe':
+          const iframeSrc = node.getAttribute('src') || '';
+          result = `[Video](${iframeSrc})\n\n`;
+          break;
+        case 'br':
+          result = '  \n';
+          break;
+        case 'div':
+        case 'span':
+          result = Array.from(node.childNodes).map(child => processNode(child, depth)).join('');
+          break;
+        default:
+          result = Array.from(node.childNodes).map(child => processNode(child, depth)).join('');
+      }
+
+      return result;
+    };
+
+    markdown = Array.from(tempDiv.childNodes).map(node => processNode(node)).join('');
+    
+    // Clean up extra newlines
+    markdown = markdown.replace(/\n{3,}/g, '\n\n').trim();
+    
+    return markdown;
   }
 
-  // Called from Wix code after successful save
-  onSaveSuccess() {
-    this.state.isDirty = false;
-    this.state.lastSaved = new Date();
+  updateMarkdown() {
+    const editor = this.querySelector('#richEditor');
+    const output = this.querySelector('#markdownOutput');
+    const html = editor.innerHTML;
     
-    this.saveBtn.classList.remove('saving');
-    this.saveBtn.disabled = false;
-    this.saveText.textContent = '✓ Saved';
+    const markdown = this.htmlToMarkdown(html);
+    output.textContent = markdown;
     
-    this.updateStatus();
+    this.editorContent = html;
+  }
 
-    // Reset button text after 2 seconds
+  copyMarkdown() {
+    const output = this.querySelector('#markdownOutput');
+    const copyBtn = this.querySelector('#copyBtn');
+    const copyText = copyBtn.querySelector('.copy-text');
+    
+    navigator.clipboard.writeText(output.textContent).then(() => {
+      copyBtn.classList.add('copied');
+      copyText.textContent = 'Copied!';
+      
+      setTimeout(() => {
+        copyBtn.classList.remove('copied');
+        copyText.textContent = 'Copy Markdown';
+      }, 2000);
+    });
+  }
+
+  startAutoSave() {
+    this.autoSaveInterval = setInterval(() => {
+      this.saveToLocalStorage();
+      this.showAutoSaveIndicator();
+    }, 20000); // 20 seconds
+  }
+
+  saveToLocalStorage() {
+    const editor = this.querySelector('#richEditor');
+    const content = editor.innerHTML;
+    localStorage.setItem('markdown-editor-content', content);
+  }
+
+  loadFromLocalStorage() {
+    const content = localStorage.getItem('markdown-editor-content');
+    if (content) {
+      const editor = this.querySelector('#richEditor');
+      editor.innerHTML = content;
+      this.updateMarkdown();
+    }
+  }
+
+  showAutoSaveIndicator() {
+    const indicator = this.querySelector('.autosave-indicator');
+    indicator.classList.add('show');
+    
     setTimeout(() => {
-      this.saveText.textContent = 'Save';
+      indicator.classList.remove('show');
     }, 2000);
   }
-
-  // Called from Wix code on save error
-  onSaveError(error) {
-    this.saveBtn.classList.remove('saving');
-    this.saveBtn.disabled = false;
-    this.saveText.textContent = '✗ Error';
-    
-    console.error('Save error:', error);
-
-    // Reset button text after 3 seconds
-    setTimeout(() => {
-      this.saveText.textContent = 'Save';
-    }, 3000);
-  }
-
-  // Get time ago string
-  getTimeAgo(date) {
-    const seconds = Math.floor((new Date() - date) / 1000);
-    
-    if (seconds < 60) return 'just now';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-  }
-
-  // Get markdown content (called from Wix code)
-  getContent() {
-    return this.state.markdownContent;
-  }
-
-  // Set content (called from Wix code)
-  setContent(content) {
-    this.state.markdownContent = content || '';
-    this.textarea.value = this.state.markdownContent;
-    this.state.isDirty = false;
-    this.updateStatus();
-    this.updateCounts();
-    this.updatePreview();
-  }
-
-  // Connected callback
-  connectedCallback() {
-    this.loadMarkedJS();
-    this.updateCounts();
-  }
 }
 
-// Register the custom element
 customElements.define('markdown-editor', MarkdownEditor);
-
-// Export for Wix
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = MarkdownEditor;
-}
-
-if (typeof window !== 'undefined' && window.customElements) {
-  window.MarkdownEditor = MarkdownEditor;
-}
