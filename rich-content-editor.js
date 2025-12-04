@@ -4,28 +4,38 @@ class RichContentEditor extends HTMLElement {
     this.editor = null;
     this.autoSaveInterval = null;
     this.currentTab = 'input';
+    this.editorReady = false;
   }
 
   connectedCallback() {
     this.render();
-    this.loadResources().then(() => {
-      this.initializeEditor();
-      this.setupEventListeners();
-      this.startAutoSave();
-    });
+    // Use setTimeout to ensure DOM is ready
+    setTimeout(() => {
+      this.loadResources().then(() => {
+        this.initializeEditor();
+        this.setupEventListeners();
+        this.startAutoSave();
+      });
+    }, 100);
   }
 
   disconnectedCallback() {
     if (this.autoSaveInterval) {
       clearInterval(this.autoSaveInterval);
     }
-    if (this.editor) {
+    if (this.editor && this.editor.destroy) {
       this.editor.destroy();
     }
   }
 
   loadResources() {
     return new Promise((resolve) => {
+      // Check if EditorJS is already loaded
+      if (window.EditorJS) {
+        resolve();
+        return;
+      }
+
       const scripts = [
         'https://cdn.jsdelivr.net/npm/@editorjs/editorjs@latest',
         'https://cdn.jsdelivr.net/npm/@editorjs/header@latest',
@@ -49,10 +59,17 @@ class RichContentEditor extends HTMLElement {
       scripts.forEach(src => {
         const script = document.createElement('script');
         script.src = src;
+        script.async = false;
         script.onload = () => {
           loadedCount++;
           if (loadedCount === scripts.length) {
-            setTimeout(resolve, 500);
+            setTimeout(resolve, 1000);
+          }
+        };
+        script.onerror = () => {
+          loadedCount++;
+          if (loadedCount === scripts.length) {
+            setTimeout(resolve, 1000);
           }
         };
         document.head.appendChild(script);
@@ -90,6 +107,7 @@ class RichContentEditor extends HTMLElement {
           padding: 30px;
           color: white;
           text-align: center;
+          position: relative;
         }
 
         .editor-header h1 {
@@ -190,11 +208,45 @@ class RichContentEditor extends HTMLElement {
           padding: 20px;
           min-height: 500px;
           transition: border-color 0.3s ease;
+          cursor: text;
+          position: relative;
+          z-index: 1;
         }
 
         #editorjs:focus-within {
           border-color: #667eea;
           box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* Fix for Editor.js clickability */
+        .codex-editor {
+          position: relative;
+          z-index: 1;
+        }
+
+        .codex-editor__redactor {
+          padding-bottom: 100px !important;
+        }
+
+        .ce-block__content,
+        .ce-toolbar__content {
+          max-width: 100%;
+        }
+
+        .ce-toolbar__actions {
+          right: 0;
+        }
+
+        .ce-paragraph {
+          cursor: text;
+        }
+
+        .ce-block {
+          cursor: text;
+        }
+
+        .ce-block:hover {
+          background: transparent;
         }
 
         .markdown-output-container {
@@ -281,30 +333,11 @@ class RichContentEditor extends HTMLElement {
           background: #64748b;
         }
 
-        .ce-toolbar__actions {
-          right: 0;
-        }
-
-        .codex-editor__redactor {
-          padding-bottom: 100px !important;
-        }
-
-        .ce-block__content,
-        .ce-toolbar__content {
-          max-width: 100%;
-        }
-
-        .empty-state {
+        .loading-state {
           text-align: center;
-          padding: 60px 20px;
+          padding: 40px;
           color: #94a3b8;
-        }
-
-        .empty-state svg {
-          width: 64px;
-          height: 64px;
-          margin-bottom: 16px;
-          opacity: 0.5;
+          font-size: 14px;
         }
 
         @media (max-width: 768px) {
@@ -314,6 +347,12 @@ class RichContentEditor extends HTMLElement {
 
           .editor-header h1 {
             font-size: 24px;
+          }
+
+          .auto-save-indicator {
+            position: static;
+            margin-top: 10px;
+            justify-content: center;
           }
 
           .content-area {
@@ -329,7 +368,7 @@ class RichContentEditor extends HTMLElement {
 
       <div class="editor-container">
         <div class="editor-wrapper">
-          <div class="editor-header" style="position: relative;">
+          <div class="editor-header">
             <h1>✨ Advanced Rich Content Editor</h1>
             <p>Create beautiful content with Markdown export</p>
             <div class="auto-save-indicator">
@@ -349,7 +388,9 @@ class RichContentEditor extends HTMLElement {
 
           <div class="content-area">
             <div class="tab-content active" id="input-tab">
-              <div id="editorjs"></div>
+              <div id="editorjs">
+                <div class="loading-state">Loading editor...</div>
+              </div>
             </div>
 
             <div class="tab-content" id="output-tab">
@@ -364,7 +405,7 @@ class RichContentEditor extends HTMLElement {
                     Copy Markdown
                   </button>
                 </div>
-                <pre id="markdown-output"></pre>
+                <pre id="markdown-output">// Your markdown will appear here...</pre>
               </div>
             </div>
           </div>
@@ -374,163 +415,217 @@ class RichContentEditor extends HTMLElement {
   }
 
   async initializeEditor() {
+    const editorElement = this.querySelector('#editorjs');
+    if (!editorElement) {
+      console.error('Editor element not found');
+      return;
+    }
+
+    // Clear loading state
+    editorElement.innerHTML = '';
+
     const savedData = this.loadFromStorage();
 
-    this.editor = new EditorJS({
-      holder: 'editorjs',
-      placeholder: 'Start writing your amazing content here...',
-      autofocus: true,
-      data: savedData || {
-        blocks: [
-          {
-            type: 'header',
-            data: {
-              text: 'Welcome to the Rich Content Editor! 🎉',
-              level: 1
-            }
-          },
-          {
-            type: 'paragraph',
-            data: {
-              text: 'This is a powerful editor with full Markdown support. Start creating your content and see it converted to Markdown in real-time!'
-            }
-          }
-        ]
-      },
-      tools: {
-        header: {
-          class: Header,
-          config: {
-            placeholder: 'Enter a header',
-            levels: [1, 2, 3, 4, 5, 6],
-            defaultLevel: 2
-          }
-        },
-        list: {
-          class: List,
-          inlineToolbar: true,
-          config: {
-            defaultStyle: 'unordered'
-          }
-        },
-        checklist: {
-          class: Checklist,
-          inlineToolbar: true
-        },
-        quote: {
-          class: Quote,
-          inlineToolbar: true,
-          config: {
-            quotePlaceholder: 'Enter a quote',
-            captionPlaceholder: 'Quote author'
-          }
-        },
-        code: {
-          class: CodeTool,
-          config: {
-            placeholder: 'Enter code here'
-          }
-        },
-        delimiter: Delimiter,
-        raw: RawTool,
-        table: {
-          class: Table,
-          inlineToolbar: true,
-          config: {
-            rows: 2,
-            cols: 3
-          }
-        },
-        warning: {
-          class: Warning,
-          inlineToolbar: true,
-          config: {
-            titlePlaceholder: 'Title',
-            messagePlaceholder: 'Message'
-          }
-        },
-        embed: {
-          class: Embed,
-          config: {
-            services: {
-              youtube: true,
-              vimeo: true,
-              coub: true,
-              codepen: true,
-              imgur: true,
-              gfycat: true,
-              twitter: true
-            }
-          }
-        },
-        linkTool: {
-          class: LinkTool,
-          config: {
-            endpoint: 'https://api.allorigins.win/get?url='
-          }
-        },
-        image: {
-          class: ImageTool,
-          config: {
-            uploader: {
-              uploadByFile: async (file) => {
-                return new Promise((resolve) => {
-                  const reader = new FileReader();
-                  reader.onload = (e) => {
-                    resolve({
-                      success: 1,
-                      file: {
-                        url: e.target.result
-                      }
-                    });
-                  };
-                  reader.readAsDataURL(file);
-                });
-              },
-              uploadByUrl: (url) => {
-                return Promise.resolve({
-                  success: 1,
-                  file: {
-                    url: url
-                  }
-                });
+    try {
+      this.editor = new EditorJS({
+        holder: 'editorjs',
+        placeholder: 'Click here and start writing your amazing content...',
+        autofocus: true,
+        minHeight: 300,
+        data: savedData || {
+          blocks: [
+            {
+              type: 'header',
+              data: {
+                text: 'Welcome to the Rich Content Editor! 🎉',
+                level: 1
               }
             },
-            captionPlaceholder: 'Enter image caption'
-          }
-        },
-        attaches: {
-          class: AttachesTool,
-          config: {
-            uploader: {
-              uploadByFile: async (file) => {
-                return {
-                  success: 1,
-                  file: {
-                    url: '#',
-                    size: file.size,
-                    name: file.name,
-                    extension: file.name.split('.').pop()
-                  }
-                };
+            {
+              type: 'paragraph',
+              data: {
+                text: 'Click anywhere in this editor to start typing. This is a powerful editor with full Markdown support. Start creating your content and see it converted to Markdown in real-time!'
+              }
+            },
+            {
+              type: 'paragraph',
+              data: {
+                text: 'Try adding headers, lists, quotes, code blocks, images, and more from the + button on the left!'
               }
             }
+          ]
+        },
+        tools: {
+          header: {
+            class: Header,
+            config: {
+              placeholder: 'Enter a header',
+              levels: [1, 2, 3, 4, 5, 6],
+              defaultLevel: 2
+            },
+            inlineToolbar: true
+          },
+          list: {
+            class: List,
+            inlineToolbar: true,
+            config: {
+              defaultStyle: 'unordered'
+            }
+          },
+          checklist: {
+            class: Checklist,
+            inlineToolbar: true
+          },
+          quote: {
+            class: Quote,
+            inlineToolbar: true,
+            config: {
+              quotePlaceholder: 'Enter a quote',
+              captionPlaceholder: 'Quote author'
+            }
+          },
+          code: {
+            class: CodeTool,
+            config: {
+              placeholder: 'Enter code here'
+            }
+          },
+          delimiter: Delimiter,
+          raw: {
+            class: RawTool,
+            config: {
+              placeholder: 'Enter raw HTML'
+            }
+          },
+          table: {
+            class: Table,
+            inlineToolbar: true,
+            config: {
+              rows: 2,
+              cols: 3
+            }
+          },
+          warning: {
+            class: Warning,
+            inlineToolbar: true,
+            config: {
+              titlePlaceholder: 'Title',
+              messagePlaceholder: 'Message'
+            }
+          },
+          embed: {
+            class: Embed,
+            inlineToolbar: true,
+            config: {
+              services: {
+                youtube: true,
+                vimeo: true,
+                coub: true,
+                codepen: {
+                  regex: /https?:\/\/codepen\.io\/([^\/\?\&]*)\/pen\/([^\/\?\&]*)/,
+                  embedUrl: 'https://codepen.io/<%= remote_id %>?height=300&theme-id=0&default-tab=css,result&embed-version=2',
+                  html: "<iframe height='300' scrolling='no' frameborder='no' allowtransparency='true' allowfullscreen='true' style='width: 100%;'></iframe>",
+                  height: 300,
+                  width: 600,
+                  id: (groups) => groups.join('/embed/')
+                }
+              }
+            }
+          },
+          linkTool: {
+            class: LinkTool,
+            config: {
+              endpoint: 'https://api.allorigins.win/get?url='
+            }
+          },
+          image: {
+            class: ImageTool,
+            config: {
+              uploader: {
+                uploadByFile: async (file) => {
+                  return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                      resolve({
+                        success: 1,
+                        file: {
+                          url: e.target.result
+                        }
+                      });
+                    };
+                    reader.readAsDataURL(file);
+                  });
+                },
+                uploadByUrl: (url) => {
+                  return Promise.resolve({
+                    success: 1,
+                    file: {
+                      url: url
+                    }
+                  });
+                }
+              },
+              captionPlaceholder: 'Enter image caption'
+            }
+          },
+          attaches: {
+            class: AttachesTool,
+            config: {
+              uploader: {
+                uploadByFile: async (file) => {
+                  return {
+                    success: 1,
+                    file: {
+                      url: '#',
+                      size: file.size,
+                      name: file.name,
+                      extension: file.name.split('.').pop()
+                    }
+                  };
+                }
+              }
+            }
+          },
+          Marker: {
+            class: Marker,
+            shortcut: 'CMD+SHIFT+M'
+          },
+          inlineCode: {
+            class: InlineCode,
+            shortcut: 'CMD+SHIFT+C'
           }
         },
-        Marker: {
-          class: Marker
+        onChange: async (api, event) => {
+          await this.updateMarkdownOutput();
         },
-        inlineCode: {
-          class: InlineCode
+        onReady: () => {
+          this.editorReady = true;
+          console.log('Editor.js is ready to work!');
+          
+          // Force focus on the editor
+          setTimeout(() => {
+            const firstBlock = editorElement.querySelector('.ce-paragraph');
+            if (firstBlock) {
+              firstBlock.click();
+            }
+          }, 300);
         }
-      },
-      onChange: async () => {
-        await this.updateMarkdownOutput();
-      }
-    });
+      });
+
+      // Initial markdown output
+      setTimeout(() => {
+        this.updateMarkdownOutput();
+      }, 1000);
+
+    } catch (error) {
+      console.error('Editor initialization error:', error);
+      editorElement.innerHTML = '<div class="loading-state" style="color: #ef4444;">Error loading editor. Please refresh the page.</div>';
+    }
   }
 
   async updateMarkdownOutput() {
+    if (!this.editor || !this.editorReady) return;
+
     try {
       const outputData = await this.editor.save();
       const markdown = this.convertToMarkdown(outputData);
@@ -544,12 +639,14 @@ class RichContentEditor extends HTMLElement {
   }
 
   convertToMarkdown(data) {
-    if (!data || !data.blocks) return '';
+    if (!data || !data.blocks || data.blocks.length === 0) {
+      return '// Start writing to see your markdown output here...';
+    }
 
     return data.blocks.map(block => {
       switch (block.type) {
         case 'header':
-          const level = '#'.repeat(block.data.level);
+          const level = '#'.repeat(block.data.level || 2);
           return `${level} ${block.data.text}\n`;
 
         case 'paragraph':
@@ -600,7 +697,8 @@ class RichContentEditor extends HTMLElement {
           return `> ⚠️ **${block.data.title}**\n>\n> ${block.data.message}\n`;
 
         case 'linkTool':
-          return `[${block.data.meta.title || block.data.link}](${block.data.link})\n`;
+          const title = block.data.meta?.title || block.data.link;
+          return `[${title}](${block.data.link})\n`;
 
         case 'image':
           let imgMd = `![${block.data.caption || 'Image'}](${block.data.file.url})`;
@@ -610,7 +708,7 @@ class RichContentEditor extends HTMLElement {
           return imgMd + '\n';
 
         case 'embed':
-          return `[Embedded Content: ${block.data.service}](${block.data.embed})\n`;
+          return `[Embedded ${block.data.service}: ${block.data.caption || 'Content'}](${block.data.embed})\n`;
 
         case 'attaches':
           return `[📎 ${block.data.file.name}](${block.data.file.url})\n`;
@@ -625,7 +723,8 @@ class RichContentEditor extends HTMLElement {
     // Tab switching
     const tabs = this.querySelectorAll('.tab');
     tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
+      tab.addEventListener('click', (e) => {
+        e.preventDefault();
         const tabName = tab.dataset.tab;
         this.switchTab(tabName);
       });
@@ -633,7 +732,25 @@ class RichContentEditor extends HTMLElement {
 
     // Copy button
     const copyBtn = this.querySelector('.copy-btn');
-    copyBtn.addEventListener('click', () => this.copyToClipboard());
+    if (copyBtn) {
+      copyBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.copyToClipboard();
+      });
+    }
+
+    // Make editor clickable
+    const editorEl = this.querySelector('#editorjs');
+    if (editorEl) {
+      editorEl.addEventListener('click', (e) => {
+        if (this.editorReady && e.target.id === 'editorjs') {
+          const blocks = editorEl.querySelectorAll('.ce-block');
+          if (blocks.length > 0) {
+            blocks[blocks.length - 1].click();
+          }
+        }
+      });
+    }
   }
 
   switchTab(tabName) {
@@ -669,8 +786,25 @@ class RichContentEditor extends HTMLElement {
     const outputElement = this.querySelector('#markdown-output');
     const copyBtn = this.querySelector('.copy-btn');
     
+    if (!outputElement || !copyBtn) return;
+    
     try {
-      await navigator.clipboard.writeText(outputElement.textContent);
+      const text = outputElement.textContent;
+      
+      // Try modern clipboard API first
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
       
       // Visual feedback
       const originalHTML = copyBtn.innerHTML;
@@ -688,12 +822,13 @@ class RichContentEditor extends HTMLElement {
       }, 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
+      alert('Copy failed. Please try selecting and copying manually.');
     }
   }
 
   startAutoSave() {
     this.autoSaveInterval = setInterval(async () => {
-      if (this.editor) {
+      if (this.editor && this.editorReady) {
         try {
           const data = await this.editor.save();
           this.saveToStorage(data);
