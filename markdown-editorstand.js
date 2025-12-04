@@ -38,11 +38,12 @@ class MarkdownEditor extends HTMLElement {
 
         :host {
           display: block;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
           width: 100%;
-          height: 100vh;
+          height: 800px;
+          max-height: 100vh;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           padding: 20px;
+          overflow: hidden;
         }
 
         .container {
@@ -60,14 +61,15 @@ class MarkdownEditor extends HTMLElement {
         .header {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
-          padding: 25px 30px;
+          padding: 20px 30px;
           display: flex;
           justify-content: space-between;
           align-items: center;
+          flex-shrink: 0;
         }
 
         .header h1 {
-          font-size: 28px;
+          font-size: 24px;
           font-weight: 700;
           letter-spacing: -0.5px;
         }
@@ -97,11 +99,12 @@ class MarkdownEditor extends HTMLElement {
           display: flex;
           background: #f8fafc;
           border-bottom: 2px solid #e2e8f0;
+          flex-shrink: 0;
         }
 
         .tab {
           flex: 1;
-          padding: 18px 30px;
+          padding: 15px 30px;
           background: transparent;
           border: none;
           font-size: 16px;
@@ -137,6 +140,7 @@ class MarkdownEditor extends HTMLElement {
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          min-height: 0;
         }
 
         .tab-content {
@@ -144,6 +148,7 @@ class MarkdownEditor extends HTMLElement {
           flex: 1;
           flex-direction: column;
           overflow: hidden;
+          min-height: 0;
         }
 
         .tab-content.active {
@@ -154,10 +159,13 @@ class MarkdownEditor extends HTMLElement {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
-          padding: 15px 20px;
+          padding: 12px 20px;
           background: #f8fafc;
           border-bottom: 1px solid #e2e8f0;
           overflow-x: auto;
+          overflow-y: hidden;
+          flex-shrink: 0;
+          max-height: 120px;
         }
 
         .toolbar-group {
@@ -165,6 +173,7 @@ class MarkdownEditor extends HTMLElement {
           gap: 4px;
           padding-right: 12px;
           border-right: 1px solid #e2e8f0;
+          flex-shrink: 0;
         }
 
         .toolbar-group:last-child {
@@ -177,11 +186,12 @@ class MarkdownEditor extends HTMLElement {
           border: 1px solid #e2e8f0;
           border-radius: 6px;
           cursor: pointer;
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 500;
           color: #475569;
           transition: all 0.2s ease;
           white-space: nowrap;
+          flex-shrink: 0;
         }
 
         .toolbar-btn:hover {
@@ -197,13 +207,16 @@ class MarkdownEditor extends HTMLElement {
 
         .editor-area {
           flex: 1;
-          padding: 25px 30px;
+          padding: 20px 30px;
           overflow-y: auto;
+          overflow-x: hidden;
+          min-height: 0;
         }
 
         #richEditor {
           width: 100%;
-          min-height: 500px;
+          min-height: 100%;
+          height: auto;
           border: 2px solid #e2e8f0;
           border-radius: 10px;
           padding: 20px;
@@ -212,6 +225,8 @@ class MarkdownEditor extends HTMLElement {
           outline: none;
           transition: border-color 0.3s ease;
           background: white;
+          overflow-wrap: break-word;
+          word-wrap: break-word;
         }
 
         #richEditor:focus {
@@ -232,6 +247,7 @@ class MarkdownEditor extends HTMLElement {
           background: #1e293b;
           color: #e2e8f0;
           transition: border-color 0.3s ease;
+          overflow-y: auto;
         }
 
         #markdownOutput:focus {
@@ -245,6 +261,7 @@ class MarkdownEditor extends HTMLElement {
           padding: 15px 30px;
           background: #f8fafc;
           border-bottom: 1px solid #e2e8f0;
+          flex-shrink: 0;
         }
 
         .output-header h3 {
@@ -304,6 +321,8 @@ class MarkdownEditor extends HTMLElement {
           box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
           max-width: 500px;
           width: 90%;
+          max-height: 90vh;
+          overflow-y: auto;
         }
 
         .modal-content h3 {
@@ -334,12 +353,19 @@ class MarkdownEditor extends HTMLElement {
           font-size: 14px;
           outline: none;
           transition: border-color 0.3s ease;
+          font-family: inherit;
         }
 
         .form-group input:focus,
         .form-group select:focus,
         .form-group textarea:focus {
           border-color: #667eea;
+        }
+
+        .form-group textarea {
+          resize: vertical;
+          min-height: 100px;
+          font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
         }
 
         .modal-actions {
@@ -381,14 +407,29 @@ class MarkdownEditor extends HTMLElement {
         @media (max-width: 768px) {
           :host {
             padding: 10px;
+            height: 600px;
+          }
+
+          .header {
+            padding: 15px 20px;
           }
 
           .header h1 {
-            font-size: 20px;
+            font-size: 18px;
+          }
+
+          .auto-save-indicator {
+            font-size: 12px;
+          }
+
+          .tab {
+            padding: 12px 15px;
+            font-size: 14px;
           }
 
           .toolbar {
             padding: 10px;
+            gap: 6px;
           }
 
           .toolbar-btn {
@@ -398,6 +439,11 @@ class MarkdownEditor extends HTMLElement {
 
           .editor-area {
             padding: 15px;
+          }
+
+          #richEditor {
+            padding: 15px;
+            font-size: 14px;
           }
         }
 
@@ -418,6 +464,22 @@ class MarkdownEditor extends HTMLElement {
 
         ::-webkit-scrollbar-thumb:hover {
           background: #94a3b8;
+        }
+
+        /* Prevent content from expanding container */
+        #richEditor * {
+          max-width: 100%;
+        }
+
+        #richEditor img {
+          max-width: 100%;
+          height: auto;
+        }
+
+        #richEditor table {
+          max-width: 100%;
+          overflow-x: auto;
+          display: block;
         }
       </style>
 
@@ -662,7 +724,8 @@ class MarkdownEditor extends HTMLElement {
     // Toolbar buttons
     const toolbarBtns = this.shadowRoot.querySelectorAll('.toolbar-btn');
     toolbarBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
         const action = btn.dataset.action;
         this.handleToolbarAction(action);
       });
@@ -740,9 +803,8 @@ class MarkdownEditor extends HTMLElement {
   }
 
   handleToolbarAction(action) {
-    const selection = this.shadowRoot.getSelection();
-    const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-
+    this.editor.focus();
+    
     switch(action) {
       case 'h1':
       case 'h2':
@@ -753,34 +815,34 @@ class MarkdownEditor extends HTMLElement {
         this.insertHeading(action);
         break;
       case 'bold':
-        document.execCommand('bold', false);
+        document.execCommand('bold', false, null);
         break;
       case 'italic':
-        document.execCommand('italic', false);
+        document.execCommand('italic', false, null);
         break;
       case 'strikethrough':
-        document.execCommand('strikeThrough', false);
+        document.execCommand('strikeThrough', false, null);
         break;
       case 'underline':
-        document.execCommand('underline', false);
+        document.execCommand('underline', false, null);
         break;
       case 'code':
         this.wrapSelection('<code>', '</code>');
         break;
       case 'superscript':
-        document.execCommand('superscript', false);
+        document.execCommand('superscript', false, null);
         break;
       case 'subscript':
-        document.execCommand('subscript', false);
+        document.execCommand('subscript', false, null);
         break;
       case 'highlight':
         this.wrapSelection('<mark>', '</mark>');
         break;
       case 'ul':
-        document.execCommand('insertUnorderedList', false);
+        document.execCommand('insertUnorderedList', false, null);
         break;
       case 'ol':
-        document.execCommand('insertOrderedList', false);
+        document.execCommand('insertOrderedList', false, null);
         break;
       case 'tasklist':
         this.insertTaskList();
@@ -814,7 +876,7 @@ class MarkdownEditor extends HTMLElement {
         break;
     }
 
-    this.convertToMarkdown();
+    setTimeout(() => this.convertToMarkdown(), 100);
   }
 
   insertHeading(level) {
@@ -846,7 +908,7 @@ class MarkdownEditor extends HTMLElement {
   }
 
   insertHorizontalRule() {
-    document.execCommand('insertHorizontalRule', false);
+    document.execCommand('insertHorizontalRule', false, null);
   }
 
   insertAtCursor(element) {
@@ -859,12 +921,20 @@ class MarkdownEditor extends HTMLElement {
       range.setEndAfter(element);
       selection.removeAllRanges();
       selection.addRange(range);
+    } else {
+      this.editor.appendChild(element);
     }
   }
 
   openModal(modalId) {
     const modal = this.shadowRoot.getElementById(modalId);
     modal.classList.add('active');
+    
+    // Focus first input
+    setTimeout(() => {
+      const firstInput = modal.querySelector('input, textarea');
+      if (firstInput) firstInput.focus();
+    }, 100);
   }
 
   closeModal(modalId) {
@@ -902,6 +972,9 @@ class MarkdownEditor extends HTMLElement {
       img.src = url;
       img.alt = alt || 'image';
       img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+      img.style.display = 'block';
+      img.style.margin = '10px 0';
       this.insertAtCursor(img);
       this.closeModal('imageModal');
       
@@ -920,6 +993,7 @@ class MarkdownEditor extends HTMLElement {
       const videoContainer = document.createElement('div');
       videoContainer.setAttribute('data-video', url);
       videoContainer.setAttribute('data-caption', caption || '');
+      videoContainer.style.margin = '10px 0';
       videoContainer.innerHTML = `<p>[Video: ${url}]${caption ? ' - ' + caption : ''}</p>`;
       this.insertAtCursor(videoContainer);
       this.closeModal('videoModal');
@@ -938,8 +1012,7 @@ class MarkdownEditor extends HTMLElement {
     const table = document.createElement('table');
     table.style.borderCollapse = 'collapse';
     table.style.width = '100%';
-    table.style.marginTop = '10px';
-    table.style.marginBottom = '10px';
+    table.style.margin = '10px 0';
 
     // Create header row
     const thead = document.createElement('thead');
@@ -950,6 +1023,7 @@ class MarkdownEditor extends HTMLElement {
       th.style.border = '1px solid #e2e8f0';
       th.style.padding = '8px';
       th.style.backgroundColor = '#f8fafc';
+      th.contentEditable = 'true';
       headerRow.appendChild(th);
     }
     thead.appendChild(headerRow);
@@ -964,6 +1038,7 @@ class MarkdownEditor extends HTMLElement {
         td.textContent = `Cell ${i}-${j + 1}`;
         td.style.border = '1px solid #e2e8f0';
         td.style.padding = '8px';
+        td.contentEditable = 'true';
         row.appendChild(td);
       }
       tbody.appendChild(row);
@@ -992,6 +1067,7 @@ class MarkdownEditor extends HTMLElement {
       codeBlock.style.padding = '15px';
       codeBlock.style.borderRadius = '8px';
       codeBlock.style.overflow = 'auto';
+      codeBlock.style.margin = '10px 0';
       
       this.insertAtCursor(codeBlock);
       this.closeModal('codeblockModal');
@@ -1125,7 +1201,7 @@ class MarkdownEditor extends HTMLElement {
             const caption = node.getAttribute('data-caption');
             return `[Video](${videoUrl})${caption ? ` *${caption}*` : ''}\n\n`;
           }
-          return children;
+          return children ? children + '\n\n' : '';
         case 'span':
           if (node.getAttribute('data-emoji')) {
             return `:${node.getAttribute('data-emoji')}:`;
@@ -1151,7 +1227,7 @@ class MarkdownEditor extends HTMLElement {
     items.forEach((item, index) => {
       const prefix = ordered ? `${index + 1}. ` : '- ';
       const content = this.nodeToMarkdown(item);
-      markdown += prefix + content + '\n';
+      markdown += prefix + content.trim() + '\n';
     });
 
     return markdown + '\n';
@@ -1177,9 +1253,20 @@ class MarkdownEditor extends HTMLElement {
 
   copyMarkdown() {
     const copyBtn = this.shadowRoot.getElementById('copyBtn');
-    this.markdownTextarea.select();
     
     navigator.clipboard.writeText(this.markdownOutput).then(() => {
+      copyBtn.textContent = 'Copied!';
+      copyBtn.classList.add('copied');
+      
+      setTimeout(() => {
+        copyBtn.textContent = 'Copy Markdown';
+        copyBtn.classList.remove('copied');
+      }, 2000);
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+      // Fallback
+      this.markdownTextarea.select();
+      document.execCommand('copy');
       copyBtn.textContent = 'Copied!';
       copyBtn.classList.add('copied');
       
@@ -1202,19 +1289,23 @@ class MarkdownEditor extends HTMLElement {
       markdown: this.markdownOutput,
       timestamp: new Date().toISOString()
     };
-    localStorage.setItem('markdownEditor_autoSave', JSON.stringify(data));
+    try {
+      localStorage.setItem('markdownEditor_autoSave', JSON.stringify(data));
+    } catch (e) {
+      console.error('Error saving to localStorage:', e);
+    }
   }
 
   loadFromLocalStorage() {
-    const saved = localStorage.getItem('markdownEditor_autoSave');
-    if (saved) {
-      try {
+    try {
+      const saved = localStorage.getItem('markdownEditor_autoSave');
+      if (saved) {
         const data = JSON.parse(saved);
         this.editor.innerHTML = data.html || '';
         this.convertToMarkdown();
-      } catch (e) {
-        console.error('Error loading saved data:', e);
       }
+    } catch (e) {
+      console.error('Error loading saved data:', e);
     }
   }
 }
